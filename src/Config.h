@@ -23,7 +23,6 @@ constexpr uint32_t LightPwmFrequency = 1000;
 constexpr uint8_t LightPwmResolution = 8;
 constexpr uint32_t LightPwmMaximum = 255;
 constexpr bool LightPwmActiveLow = true;
-constexpr uint8_t DefaultLightBrightness = 100;
 constexpr uint8_t LightBrightnessStep = 5;
 
 constexpr int UvOutputPin = 39;

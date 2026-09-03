@@ -2,12 +2,8 @@
 
 #include <Arduino.h>
 
-enum class UiPage : uint8_t {
-  Status,
-  Settings,
-};
-
 enum class SettingsItem : uint8_t {
+  SetTemperature,
   Light,
   Uv,
   Fan,
@@ -35,7 +31,6 @@ struct SystemState {
   bool uvEnabled;
   bool fanEnabled;
 
-  UiPage page;
   SettingsItem settingsItem;
   bool settingsItemSelected;
 

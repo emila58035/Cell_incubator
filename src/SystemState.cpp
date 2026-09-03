@@ -15,11 +15,10 @@ SystemState::SystemState()
       heaterDuty(0),
       heatingEnabled(false),
       lightEnabled(false),
-      lightBrightness(Config::DefaultLightBrightness),
+      lightBrightness(0),
       uvEnabled(false),
       fanEnabled(false),
-      page(UiPage::Status),
-      settingsItem(SettingsItem::Light),
+      settingsItem(SettingsItem::SetTemperature),
       settingsItemSelected(false),
       displayDirty(true) {}
 

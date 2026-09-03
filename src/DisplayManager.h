@@ -19,8 +19,4 @@ class DisplayManager {
 
   void renderSprite(const SystemState &state);
   void renderDirect(const SystemState &state);
-  void renderStatusSprite(const SystemState &state);
-  void renderSettingsSprite(const SystemState &state);
-  void renderStatusDirect(const SystemState &state);
-  void renderSettingsDirect(const SystemState &state);
 };
