@@ -14,15 +14,17 @@ void InputManager::begin() {
 
   encoderState_ = (digitalRead(Config::EncoderAPin) << 1) |
                   digitalRead(Config::EncoderBPin);
-
+  pushRawPressed_ = digitalRead(Config::EncoderPushPin) == LOW;
+  pushStablePressed_ = pushRawPressed_;
+  KORawPressed_ = digitalRead(Config::KOPIN) == LOW;
+  KOStablePressed_ = KORawPressed_;
+  pushLastChangeTime_ = millis();
+  KOLastChangeTime_ = pushLastChangeTime_;
 
   attachInterrupt(digitalPinToInterrupt(Config::EncoderAPin), encoderIsr,
                   CHANGE);
   attachInterrupt(digitalPinToInterrupt(Config::EncoderBPin), encoderIsr,
                   CHANGE);
-  attachInterrupt(digitalPinToInterrupt(Config::EncoderPushPin), pushIsr,
-                  FALLING);
-  attachInterrupt(digitalPinToInterrupt(Config::KOPIN), KOIsr, FALLING);
 
   Serial.printf("[INPUT] Encoder A=GPIO%d, B=GPIO%d, PUSH=GPIO%d, KO=GPIO%d\n",
                 Config::EncoderAPin, Config::EncoderBPin,
@@ -30,6 +32,11 @@ void InputManager::begin() {
 }
 
 void InputManager::update(uint32_t now, SystemState &state) {
+  updateButton(now, Config::EncoderPushPin, pushRawPressed_,
+               pushStablePressed_, pushLastChangeTime_, pushPressedEvent_);
+  updateButton(now, Config::KOPIN, KORawPressed_, KOStablePressed_,
+               KOLastChangeTime_, KOPressedEvent_);
+
   int32_t steps;
   bool pushPressed;
   bool KOPressed;
@@ -80,16 +87,14 @@ void InputManager::update(uint32_t now, SystemState &state) {
     state.markDisplayDirty();
   }
 
-  if (pushPressed && now - lastPushTime_ >= Config::PushDebounceMs) {
-    lastPushTime_ = now;
+  if (pushPressed) {
     state.settingsItemSelected = !state.settingsItemSelected;
     state.markDisplayDirty();
     Serial.printf("[INPUT] Item %s\n",
                   state.settingsItemSelected ? "selected" : "released");
   }
 
-  if (KOPressed && now - lastKOTime_ >= Config::PushDebounceMs) {
-    lastKOTime_ = now;
+  if (KOPressed) {
     if (state.settingsItemSelected) {
       switch (state.settingsItem) {
         case SettingsItem::SetTemperature:
@@ -136,26 +141,6 @@ void IRAM_ATTR InputManager::encoderIsr() {
   }
 }
 
-void IRAM_ATTR InputManager::pushIsr() {
-  if (instance_ == nullptr) {
-    return;
-  }
-
-  portENTER_CRITICAL_ISR(&instance_->mux_);
-  instance_->pushPressedEvent_ = true;
-  portEXIT_CRITICAL_ISR(&instance_->mux_);
-}
-
-void IRAM_ATTR InputManager::KOIsr() {
-  if (instance_ == nullptr) {
-    return;
-  }
-
-  portENTER_CRITICAL_ISR(&instance_->mux_);
-  instance_->KOPressedEvent_ = true;
-  portEXIT_CRITICAL_ISR(&instance_->mux_);
-}
-
 void IRAM_ATTR InputManager::captureEncoderTransition() {
   static const int8_t transitionTable[16] = {
       0, -1, 1, 0, 1, 0, 0, -1,
@@ -183,4 +168,25 @@ void IRAM_ATTR InputManager::captureEncoderTransition() {
     encoderAccumulator_ = 0;
   }
   portEXIT_CRITICAL_ISR(&mux_);
+}
+
+void InputManager::updateButton(uint32_t now, int pin, bool &rawPressed,
+                                bool &stablePressed,
+                                uint32_t &lastChangeTime,
+                                bool &pressedEvent) {
+  const bool sampledPressed = digitalRead(pin) == LOW;
+  if (sampledPressed != rawPressed) {
+    rawPressed = sampledPressed;
+    lastChangeTime = now;
+  }
+
+  if (rawPressed == stablePressed ||
+      now - lastChangeTime < Config::PushDebounceMs) {
+    return;
+  }
+
+  stablePressed = rawPressed;
+  if (stablePressed) {
+    pressedEvent = true;
+  }
 }
