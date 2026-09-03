@@ -2,6 +2,18 @@
 
 #include <Arduino.h>
 
+enum class UiPage : uint8_t {
+  Status,
+  Settings,
+};
+
+enum class SettingsItem : uint8_t {
+  Light,
+  Uv,
+  Fan,
+  Count,
+};
+
 struct SystemState {
   SystemState();
 
@@ -18,7 +30,14 @@ struct SystemState {
   double heaterOutput;
   uint32_t heaterDuty;
   bool heatingEnabled;
-  bool LEDState;
+  bool lightEnabled;
+  uint8_t lightBrightness;
+  bool uvEnabled;
+  bool fanEnabled;
+
+  UiPage page;
+  SettingsItem settingsItem;
+  bool settingsItemSelected;
 
   bool displayDirty;
 

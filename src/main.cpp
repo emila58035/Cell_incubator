@@ -1,9 +1,11 @@
 #include "AHT20Sensor.h"
 #include "Config.h"
 #include "DisplayManager.h"
+#include "FanController.h"
 #include "HeaterController.h"
 #include "InputManager.h"
 #include "SenseAirS8Sensor.h"
+#include "UVController.h"
 #include "ValveController.h"
 #include "LEDController.h"
 #include "SystemState.h"
@@ -16,6 +18,8 @@ HeaterController heaterController;
 DisplayManager displayManager;
 ValveController valveController;
 LEDController ledController;
+UVController uvController;
+FanController fanController;
 
 void setup() {
   Serial.begin(Config::DebugBaudRate);
@@ -27,6 +31,8 @@ void setup() {
   co2Sensor.begin(systemState);
   valveController.begin(systemState);
   ledController.begin(systemState);
+  uvController.begin(systemState);
+  fanController.begin(systemState);
 
   heaterController.update(systemState);
   displayManager.update(systemState);
@@ -42,4 +48,6 @@ void loop() {
   displayManager.update(systemState);
   valveController.update(now, systemState);
   ledController.update(systemState);
+  uvController.update(systemState);
+  fanController.update(systemState);
 }

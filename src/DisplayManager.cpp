@@ -4,6 +4,19 @@
 
 DisplayManager::DisplayManager() : sprite_(&tft_) {}
 
+namespace {
+
+const char *onOff(bool enabled) { return enabled ? "ON" : "OFF"; }
+
+uint16_t settingColor(const SystemState &state, SettingsItem item) {
+  if (state.settingsItem != item) {
+    return TFT_DARKGREY;
+  }
+  return state.settingsItemSelected ? TFT_YELLOW : TFT_CYAN;
+}
+
+}  // namespace
+
 void DisplayManager::begin(SystemState &state) {
   pinMode(Config::TftBacklightPin, OUTPUT);
   digitalWrite(Config::TftBacklightPin, HIGH);
@@ -41,13 +54,23 @@ void DisplayManager::update(SystemState &state) {
 }
 
 void DisplayManager::renderSprite(const SystemState &state) {
+  if (state.page == UiPage::Settings) {
+    renderSettingsSprite(state);
+    return;
+  }
+  renderStatusSprite(state);
+}
+
+void DisplayManager::renderStatusSprite(const SystemState &state) {
   constexpr int LabelX = 12;
   constexpr int ValueX = 236;
   constexpr int UnitX = 248;
   constexpr int Row1Y = 27;
   constexpr int Row2Y = 82;
   constexpr int Row3Y = 137;
-  constexpr int FooterY = 193;
+  constexpr int Footer1Y = 171;
+  constexpr int Footer2Y = 193;
+  constexpr int Footer3Y = 212;
 
   sprite_.fillSprite(TFT_BLACK);
   sprite_.setTextSize(1);
@@ -97,37 +120,46 @@ void DisplayManager::renderSprite(const SystemState &state) {
   sprite_.drawString("%", UnitX, Row2Y, 2);
   sprite_.drawString("ppm", UnitX, Row3Y, 2);
 
-  char setpointText[20];
-  snprintf(setpointText, sizeof(setpointText), "Set %.1f C", state.setpoint);
+  char statusText[40];
+  snprintf(statusText, sizeof(statusText), "Set %.1fC  Heat %s", state.setpoint,
+           onOff(state.heatingEnabled));
   sprite_.setTextDatum(ML_DATUM);
   sprite_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  sprite_.drawString(setpointText, LabelX, FooterY, 2);
+  sprite_.drawString(statusText, LabelX, Footer1Y, 2);
 
-  sprite_.setTextDatum(MC_DATUM);
-  sprite_.drawString(state.LEDState ? "Light ON" : "Light OFF",
-                     Config::DynamicAreaWidth / 2, FooterY, 2);
+  snprintf(statusText, sizeof(statusText), "Light %s %u%%  UV %s",
+           onOff(state.lightEnabled), state.lightBrightness,
+           onOff(state.uvEnabled));
+  sprite_.drawString(statusText, LabelX, Footer2Y, 2);
 
-  char powerText[20];
-  if (state.heatingEnabled) {
-    snprintf(powerText, sizeof(powerText), "Power %.0f%%",
-             state.heaterOutput / Config::HeaterPwmMaximum * 100.0);
-  } else {
-    snprintf(powerText, sizeof(powerText), "Power OFF");
-  }
-  sprite_.setTextDatum(MR_DATUM);
-  sprite_.drawString(powerText, Config::DynamicAreaWidth - LabelX, FooterY, 2);
+  snprintf(statusText, sizeof(statusText), "Fan %s  Power %.0f%%",
+           onOff(state.fanEnabled),
+           state.heatingEnabled
+               ? state.heaterOutput / Config::HeaterPwmMaximum * 100.0
+               : 0.0);
+  sprite_.drawString(statusText, LabelX, Footer3Y, 2);
 
   sprite_.pushSprite(Config::DynamicAreaX, Config::DynamicAreaY);
 }
 
 void DisplayManager::renderDirect(const SystemState &state) {
+  if (state.page == UiPage::Settings) {
+    renderSettingsDirect(state);
+    return;
+  }
+  renderStatusDirect(state);
+}
+
+void DisplayManager::renderStatusDirect(const SystemState &state) {
   constexpr int LabelX = Config::DynamicAreaX + 12;
   constexpr int ValueX = Config::DynamicAreaX + 236;
   constexpr int UnitX = Config::DynamicAreaX + 248;
   constexpr int Row1Y = Config::DynamicAreaY + 27;
   constexpr int Row2Y = Config::DynamicAreaY + 82;
   constexpr int Row3Y = Config::DynamicAreaY + 137;
-  constexpr int FooterY = Config::DynamicAreaY + 193;
+  constexpr int Footer1Y = Config::DynamicAreaY + 171;
+  constexpr int Footer2Y = Config::DynamicAreaY + 193;
+  constexpr int Footer3Y = Config::DynamicAreaY + 212;
 
   tft_.fillRect(Config::DynamicAreaX, Config::DynamicAreaY,
                 Config::DynamicAreaWidth, Config::DynamicAreaHeight,
@@ -181,23 +213,99 @@ void DisplayManager::renderDirect(const SystemState &state) {
   tft_.drawString("%", UnitX, Row2Y, 2);
   tft_.drawString("ppm", UnitX, Row3Y, 2);
 
-  char setpointText[20];
-  snprintf(setpointText, sizeof(setpointText), "Set %.1f C", state.setpoint);
-  tft_.drawString(setpointText, LabelX, FooterY, 2);
+  char statusText[40];
+  snprintf(statusText, sizeof(statusText), "Set %.1fC  Heat %s", state.setpoint,
+           onOff(state.heatingEnabled));
+  tft_.drawString(statusText, LabelX, Footer1Y, 2);
 
-  tft_.setTextDatum(MC_DATUM);
-  tft_.drawString(state.LEDState ? "Light ON" : "Light OFF",
-                  Config::DisplayWidth / 2, FooterY, 2);
+  snprintf(statusText, sizeof(statusText), "Light %s %u%%  UV %s",
+           onOff(state.lightEnabled), state.lightBrightness,
+           onOff(state.uvEnabled));
+  tft_.drawString(statusText, LabelX, Footer2Y, 2);
 
-  char powerText[20];
-  if (state.heatingEnabled) {
-    snprintf(powerText, sizeof(powerText), "Power %.0f%%",
-             state.heaterOutput / Config::HeaterPwmMaximum * 100.0);
-  } else {
-    snprintf(powerText, sizeof(powerText), "Power OFF");
-  }
+  snprintf(statusText, sizeof(statusText), "Fan %s  Power %.0f%%",
+           onOff(state.fanEnabled),
+           state.heatingEnabled
+               ? state.heaterOutput / Config::HeaterPwmMaximum * 100.0
+               : 0.0);
+  tft_.drawString(statusText, LabelX, Footer3Y, 2);
+}
+
+void DisplayManager::renderSettingsSprite(const SystemState &state) {
+  constexpr int X = 8;
+  constexpr int Width = Config::DynamicAreaWidth - X * 2;
+  constexpr int RowHeight = 44;
+  constexpr int LightY = 45;
+  constexpr int UvY = 98;
+  constexpr int FanY = 151;
+
+  sprite_.fillSprite(TFT_BLACK);
+  sprite_.setTextDatum(ML_DATUM);
+  sprite_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  sprite_.drawString("SETTINGS", X, 17, 2);
+  sprite_.drawFastHLine(0, 33, Config::DynamicAreaWidth, TFT_DARKGREY);
+
+  sprite_.drawRect(X, LightY, Width, RowHeight,
+                  settingColor(state, SettingsItem::Light));
+  sprite_.drawRect(X, UvY, Width, RowHeight,
+                  settingColor(state, SettingsItem::Uv));
+  sprite_.drawRect(X, FanY, Width, RowHeight,
+                  settingColor(state, SettingsItem::Fan));
+
+  sprite_.setTextColor(TFT_WHITE, TFT_BLACK);
+  sprite_.drawString("LIGHT", X + 12, LightY + RowHeight / 2, 2);
+  sprite_.drawString("UV", X + 12, UvY + RowHeight / 2, 2);
+  sprite_.drawString("FAN", X + 12, FanY + RowHeight / 2, 2);
+
+  char valueText[20];
+  sprite_.setTextDatum(MR_DATUM);
+  snprintf(valueText, sizeof(valueText), "%s  %u%%", onOff(state.lightEnabled),
+           state.lightBrightness);
+  sprite_.drawString(valueText, X + Width - 12, LightY + RowHeight / 2, 2);
+  sprite_.drawString(onOff(state.uvEnabled), X + Width - 12,
+                     UvY + RowHeight / 2, 2);
+  sprite_.drawString(onOff(state.fanEnabled), X + Width - 12,
+                     FanY + RowHeight / 2, 2);
+
+  sprite_.pushSprite(Config::DynamicAreaX, Config::DynamicAreaY);
+}
+
+void DisplayManager::renderSettingsDirect(const SystemState &state) {
+  constexpr int X = Config::DynamicAreaX + 8;
+  constexpr int Width = Config::DynamicAreaWidth - 16;
+  constexpr int RowHeight = 44;
+  constexpr int LightY = Config::DynamicAreaY + 45;
+  constexpr int UvY = Config::DynamicAreaY + 98;
+  constexpr int FanY = Config::DynamicAreaY + 151;
+
+  tft_.fillRect(Config::DynamicAreaX, Config::DynamicAreaY,
+                Config::DynamicAreaWidth, Config::DynamicAreaHeight,
+                TFT_BLACK);
+  tft_.setTextDatum(ML_DATUM);
+  tft_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  tft_.drawString("SETTINGS", X, Config::DynamicAreaY + 17, 2);
+  tft_.drawFastHLine(Config::DynamicAreaX, Config::DynamicAreaY + 33,
+                     Config::DynamicAreaWidth, TFT_DARKGREY);
+
+  tft_.drawRect(X, LightY, Width, RowHeight,
+                settingColor(state, SettingsItem::Light));
+  tft_.drawRect(X, UvY, Width, RowHeight,
+                settingColor(state, SettingsItem::Uv));
+  tft_.drawRect(X, FanY, Width, RowHeight,
+                settingColor(state, SettingsItem::Fan));
+
+  tft_.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft_.drawString("LIGHT", X + 12, LightY + RowHeight / 2, 2);
+  tft_.drawString("UV", X + 12, UvY + RowHeight / 2, 2);
+  tft_.drawString("FAN", X + 12, FanY + RowHeight / 2, 2);
+
+  char valueText[20];
   tft_.setTextDatum(MR_DATUM);
-  tft_.drawString(powerText, Config::DynamicAreaX +
-                                 Config::DynamicAreaWidth - 12,
-                  FooterY, 2);
+  snprintf(valueText, sizeof(valueText), "%s  %u%%", onOff(state.lightEnabled),
+           state.lightBrightness);
+  tft_.drawString(valueText, X + Width - 12, LightY + RowHeight / 2, 2);
+  tft_.drawString(onOff(state.uvEnabled), X + Width - 12,
+                  UvY + RowHeight / 2, 2);
+  tft_.drawString(onOff(state.fanEnabled), X + Width - 12,
+                  FanY + RowHeight / 2, 2);
 }

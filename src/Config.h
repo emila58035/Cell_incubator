@@ -18,6 +18,20 @@ constexpr uint8_t HeaterPwmResolution = 8;
 constexpr uint32_t HeaterPwmMaximum = 255;
 constexpr bool HeaterPwmActiveLow = true;
 
+constexpr int LightPwmPin = 38;
+constexpr uint32_t LightPwmFrequency = 1000;
+constexpr uint8_t LightPwmResolution = 8;
+constexpr uint32_t LightPwmMaximum = 255;
+constexpr bool LightPwmActiveLow = true;
+constexpr uint8_t DefaultLightBrightness = 100;
+constexpr uint8_t LightBrightnessStep = 5;
+
+constexpr int UvOutputPin = 39;
+constexpr bool UvOutputActiveLow = true;
+
+constexpr int FanOutputPin = 47;
+constexpr bool FanOutputActiveLow = true;
+
 constexpr int S8RxPin = 5;
 constexpr int S8TxPin = 6;
 constexpr uint8_t S8UartPort = 1;
@@ -65,6 +79,4 @@ constexpr uint32_t ValveCO2threshold3 = 48000;
 constexpr uint32_t ValveOpenDurationMs_long = 1000;
 constexpr uint32_t ValveOpenDurationMs_short = 500;
 
-constexpr int LEDOutputPin = 38;
-constexpr bool LEDOutputActiveLow = true;
 }

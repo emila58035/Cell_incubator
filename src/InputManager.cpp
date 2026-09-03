@@ -43,35 +43,82 @@ void InputManager::update(uint32_t now, SystemState &state) {
   KOPressedEvent_ = false;
   portEXIT_CRITICAL(&mux_);
 
-  if (steps != 0) {
+  if (steps != 0 && state.page == UiPage::Status) {
     state.setpoint += steps * Config::EncoderTemperatureStep;
     state.setpoint = round(state.setpoint * 10.0) / 10.0;
     state.setpoint = constrain(state.setpoint, Config::MinimumSetpoint,
                                Config::MaximumSetpoint);
     state.markDisplayDirty();
     Serial.printf("[INPUT] Set temperature=%.1f C\n", state.setpoint);
+  } else if (steps != 0 && state.settingsItemSelected) {
+    if (state.settingsItem == SettingsItem::Light) {
+      const int brightness = state.lightBrightness +
+                             steps * Config::LightBrightnessStep;
+      state.lightBrightness = constrain(brightness, 0, 100);
+      state.markDisplayDirty();
+      Serial.printf("[INPUT] Light brightness=%u%%\n",
+                    state.lightBrightness);
+    }
+  } else if (steps != 0) {
+    const int itemCount = static_cast<int>(SettingsItem::Count);
+    const int currentItem = static_cast<int>(state.settingsItem);
+    const int nextItem =
+        (currentItem + (steps % itemCount) + itemCount) % itemCount;
+    state.settingsItem = static_cast<SettingsItem>(nextItem);
+    state.markDisplayDirty();
   }
 
-  if (!pushPressed || now - lastPushTime_ < Config::PushDebounceMs) {
-  } else {
+  if (pushPressed && now - lastPushTime_ >= Config::PushDebounceMs) {
     lastPushTime_ = now;
-    if (!state.temperatureValid && !state.heatingEnabled) {
-      Serial.println("[INPUT] Heating rejected: temperature is invalid");;
-    }else {
-      state.heatingEnabled = !state.heatingEnabled;
+    if (state.page == UiPage::Status) {
+      if (!state.temperatureValid && !state.heatingEnabled) {
+        Serial.println("[INPUT] Heating rejected: temperature is invalid");
+      } else {
+        state.heatingEnabled = !state.heatingEnabled;
+        state.markDisplayDirty();
+        Serial.printf("[INPUT] Heating=%s\n",
+                      state.heatingEnabled ? "ON" : "OFF");
+      }
+    } else {
+      state.settingsItemSelected = !state.settingsItemSelected;
       state.markDisplayDirty();
-      Serial.printf("[INPUT] Heating=%s\n",
-                    state.heatingEnabled ? "ON" : "OFF");
+      Serial.printf("[INPUT] Settings item %s\n",
+                    state.settingsItemSelected ? "selected" : "released");
     }
   }
-  if (!KOPressed || now - lastKOTime_ < Config::PushDebounceMs) {
-  } else {
+
+  if (KOPressed && now - lastKOTime_ >= Config::PushDebounceMs) {
     lastKOTime_ = now;
-    Serial.println("[INPUT] KO button pressed");
-    state.LEDState = !state.LEDState;
-    state.markDisplayDirty();
-    Serial.printf("[INPUT] LED=%s\n",
-                  state.LEDState ? "ON" : "OFF");
+    if (state.page == UiPage::Status) {
+      state.page = UiPage::Settings;
+      state.settingsItemSelected = false;
+      state.markDisplayDirty();
+      Serial.println("[INPUT] Settings page opened");
+    } else if (!state.settingsItemSelected) {
+      state.page = UiPage::Status;
+      state.markDisplayDirty();
+      Serial.println("[INPUT] Status page opened");
+    } else {
+      switch (state.settingsItem) {
+        case SettingsItem::Light:
+          state.lightEnabled = !state.lightEnabled;
+          Serial.printf("[INPUT] Light=%s\n",
+                        state.lightEnabled ? "ON" : "OFF");
+          break;
+        case SettingsItem::Uv:
+          state.uvEnabled = !state.uvEnabled;
+          Serial.printf("[INPUT] UV=%s\n", state.uvEnabled ? "ON" : "OFF");
+          break;
+        case SettingsItem::Fan:
+          state.fanEnabled = !state.fanEnabled;
+          Serial.printf("[INPUT] Fan=%s\n",
+                        state.fanEnabled ? "ON" : "OFF");
+          break;
+        case SettingsItem::Count:
+          break;
+      }
+      state.markDisplayDirty();
+    }
   }
 }
 

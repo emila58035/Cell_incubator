@@ -1,20 +1,28 @@
-#include "HardwareSerial.h"
 #include "LEDController.h"
 
 #include "Config.h"
 
 void LEDController::begin(SystemState &state) {
-    state.LEDState = false;
-    pinMode(Config::LEDOutputPin, OUTPUT);
-    digitalWrite(Config::LEDOutputPin,
-                 Config::LEDOutputActiveLow ? HIGH : LOW);
-    Serial.printf("[LED] Ready on GPIO%d, startup=OFF\n",
-                Config::LEDOutputPin);
+  state.lightEnabled = false;
+  pinMode(Config::LightPwmPin, OUTPUT);
+  digitalWrite(Config::LightPwmPin,
+               Config::LightPwmActiveLow ? HIGH : LOW);
+  ledcAttach(Config::LightPwmPin, Config::LightPwmFrequency,
+             Config::LightPwmResolution);
+  writeBrightness(0);
+  Serial.printf("[LIGHT] Ready on GPIO%d, startup=OFF\n",
+                Config::LightPwmPin);
 }
 
 void LEDController::update(SystemState &state) {
-    digitalWrite(Config::LEDOutputPin,
-               state.LEDState
-                   ? (Config::LEDOutputActiveLow ? LOW : HIGH)
-                   : (Config::LEDOutputActiveLow ? HIGH : LOW));
+  writeBrightness(state.lightEnabled ? state.lightBrightness : 0);
+}
+
+void LEDController::writeBrightness(uint8_t brightness) {
+  const uint32_t logicalDuty = map(brightness, 0, 100, 0,
+                                   Config::LightPwmMaximum);
+  const uint32_t physicalDuty = Config::LightPwmActiveLow
+                                    ? Config::LightPwmMaximum - logicalDuty
+                                    : logicalDuty;
+  ledcWrite(Config::LightPwmPin, physicalDuty);
 }

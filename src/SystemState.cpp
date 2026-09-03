@@ -14,7 +14,13 @@ SystemState::SystemState()
       heaterOutput(0.0),
       heaterDuty(0),
       heatingEnabled(false),
-      LEDState(false),
+      lightEnabled(false),
+      lightBrightness(Config::DefaultLightBrightness),
+      uvEnabled(false),
+      fanEnabled(false),
+      page(UiPage::Status),
+      settingsItem(SettingsItem::Light),
+      settingsItemSelected(false),
       displayDirty(true) {}
 
 void SystemState::invalidateClimate() {

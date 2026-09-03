@@ -5,11 +5,10 @@
 #include "SystemState.h"
 
 class LEDController {
-public:
+ public:
+  void begin(SystemState &state);
+  void update(SystemState &state);
 
-   void begin(SystemState &state);
-   void update(SystemState &state);
-
-private:
-   
+ private:
+  void writeBrightness(uint8_t brightness);
 };
