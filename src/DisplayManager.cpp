@@ -110,10 +110,10 @@ void renderLayout(Display &display, const SystemState &state, int originX,
   char valueText[24];
   formatTemperature(valueText, sizeof(valueText), state);
   drawMetric(TempX, "TEMP", valueText, "C", TFT_CYAN,
-             state.temperatureValid ? TFT_CYAN : TFT_ORANGE, 3);
+             state.temperatureValid ? TFT_CYAN : TFT_ORANGE, 4);
   formatHumidity(valueText, sizeof(valueText), state);
   drawMetric(HumidityX, "HUMIDITY", valueText, "%", TFT_CYAN,
-             state.humidityValid ? TFT_CYAN : TFT_ORANGE, 3);
+             state.humidityValid ? TFT_CYAN : TFT_ORANGE, 4);
   formatCo2(valueText, sizeof(valueText), state);
   drawMetric(Co2X, "CO2", valueText, "ppm", TFT_YELLOW,
              state.co2Valid ? TFT_GREEN : TFT_ORANGE, 2);
