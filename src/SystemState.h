@@ -30,6 +30,7 @@ struct SystemState {
   uint8_t lightBrightness;
   bool uvEnabled;
   bool fanEnabled;
+  bool valveOpen;
 
   SettingsItem settingsItem;
   bool settingsItemSelected;

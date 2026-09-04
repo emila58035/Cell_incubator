@@ -90,11 +90,11 @@ void renderLayout(Display &display, const SystemState &state, int originX,
                           CardColor);
     display.drawRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
                           borderColor);
-    display.setTextDatum(MC_DATUM);
+    display.setTextDatum(ML_DATUM);
     display.setTextColor(TFT_LIGHTGREY, CardColor);
-    display.drawString(label, x(cardX + SensorWidth / 2), y(SensorY + 14), 2);
-    display.fillCircle(x(cardX + SensorWidth - 9), y(SensorY + SensorHeight - 9), 3,
-                       statusColor);
+    display.drawString(label, x(cardX + 7), y(SensorY + 13), 2);
+    display.fillCircle(x(cardX + SensorWidth - 9),
+                       y(SensorY + SensorHeight - 9), 3, statusColor);
 
     const int valueWidth = display.textWidth(value, valueFont);
     const int unitWidth = display.textWidth(unit, 2);
@@ -158,15 +158,15 @@ void renderLayout(Display &display, const SystemState &state, int originX,
   char powerText[8];
   snprintf(powerText, sizeof(powerText), "%u%%", power);
   drawControl(SettingsItem::Count, 108, ControlRow2Y, "HEAT POWER", powerText,
-              state.heatingEnabled ? TFT_ORANGE : TFT_WHITE, false);
-  display.fillRoundRect(x(159), y(ControlRow2Y + 22), 38, 4, 2, MutedColor);
-  display.fillRoundRect(x(159), y(ControlRow2Y + 22), power * 38 / 100, 4, 2,
-                        TFT_ORANGE);
-
-  drawControl(SettingsItem::Count, 208, ControlRow2Y, "HEATER",
-              onOff(state.heatingEnabled),
               state.heatingEnabled ? TFT_ORANGE : TFT_WHITE,
               state.heatingEnabled);
+  display.fillRoundRect(x(154), y(ControlRow2Y + 22), 27, 4, 2, MutedColor);
+  display.fillRoundRect(x(154), y(ControlRow2Y + 22), power * 27 / 100, 4, 2,
+                        TFT_ORANGE);
+
+  drawControl(SettingsItem::Count, 208, ControlRow2Y, "VALVE",
+              onOff(state.valveOpen), state.valveOpen ? TFT_GREEN : TFT_WHITE,
+              state.valveOpen);
 
   display.setTextDatum(ML_DATUM);
   display.setTextColor(MutedColor, ScreenColor);

@@ -5,13 +5,12 @@
 
 void ValveController::begin(SystemState &state) {
   pinMode(Config::ValvePin, OUTPUT);
-  digitalWrite(Config::ValvePin, LOW);
+  setValveOpen(state, false);
 }
 
 void ValveController::update(uint32_t now, SystemState &state) {
   if(!state.co2Available || !state.co2Valid){
-    digitalWrite(Config::ValvePin, LOW);
-    valveOpen = false;
+    setValveOpen(state, false);
     lastUpdateTime = now;
   }
   if (state.co2Available && state.co2Valid) {
@@ -19,34 +18,43 @@ void ValveController::update(uint32_t now, SystemState &state) {
         if(now - lastUpdateTime < Config::ValveIntervalMs1) {
           return;
         }
-        else pulseValve(now, Config::ValveOpenDurationMs_long);
+        else pulseValve(now, Config::ValveOpenDurationMs_long, state);
     } else if(state.co2 < Config::ValveCO2threshold2){
         if(now - lastUpdateTime < Config::ValveIntervalMs2) {
           return;
         }
-        else pulseValve(now, Config::ValveOpenDurationMs_short);
+        else pulseValve(now, Config::ValveOpenDurationMs_short, state);
     } else if(state.co2 < Config::ValveCO2threshold3){
         if(now - lastUpdateTime < Config::ValveIntervalMs3) {
           return;
         }
-        else pulseValve(now, Config::ValveOpenDurationMs_short);
+        else pulseValve(now, Config::ValveOpenDurationMs_short, state);
     } else {
-        digitalWrite(Config::ValvePin, LOW);
-        valveOpen = false;
+        setValveOpen(state, false);
         lastUpdateTime = now;
     }
   }
 }
 
-void ValveController::pulseValve(uint32_t now, uint32_t pulsetime) {
+void ValveController::setValveOpen(SystemState &state, bool open) {
+    digitalWrite(Config::ValvePin, open ? HIGH : LOW);
+    if (valveOpen == open) {
+        return;
+    }
+
+    valveOpen = open;
+    state.valveOpen = open;
+    state.markDisplayDirty();
+}
+
+void ValveController::pulseValve(uint32_t now, uint32_t pulseTime,
+                                 SystemState &state) {
     if (!valveOpen) {
-        digitalWrite(Config::ValvePin, HIGH);
-        valveOpen = true;
+        setValveOpen(state, true);
         lastOpenTime = millis();
         Serial.println("Valve Open");
-    } else if (millis() - lastOpenTime >= pulsetime) {
-        digitalWrite(Config::ValvePin, LOW);
-        valveOpen = false;
+    } else if (millis() - lastOpenTime >= pulseTime) {
+        setValveOpen(state, false);
         lastUpdateTime = now;
         Serial.println("Valve Close");
     }

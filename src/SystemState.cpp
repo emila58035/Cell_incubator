@@ -18,6 +18,7 @@ SystemState::SystemState()
       lightBrightness(0),
       uvEnabled(false),
       fanEnabled(false),
+      valveOpen(false),
       settingsItem(SettingsItem::SetTemperature),
       settingsItemSelected(false),
       displayDirty(true) {}
