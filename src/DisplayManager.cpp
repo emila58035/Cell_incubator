@@ -64,14 +64,11 @@ template <typename Display>
 void renderLayout(Display &display, const SystemState &state, int originX,
                   int originY) {
   constexpr int TempX = 8;
-  constexpr int HumidityX = 156;
+  constexpr int HumidityX = 108;
+  constexpr int Co2X = 208;
   constexpr int SensorY = 5;
-  constexpr int SensorWidth = 140;
-  constexpr int SensorHeight = 56;
-  constexpr int Co2X = 8;
-  constexpr int Co2Y = 67;
-  constexpr int Co2Width = 288;
-  constexpr int Co2Height = 37;
+  constexpr int SensorWidth = 88;
+  constexpr int SensorHeight = 99;
   constexpr int SeparatorY = 112;
   constexpr int ControlLabelY = 124;
   constexpr int ControlRow1Y = 130;
@@ -87,7 +84,8 @@ void renderLayout(Display &display, const SystemState &state, int originX,
                    Config::DynamicAreaHeight, ScreenColor);
 
   const auto drawMetric = [&](int cardX, const char *label, const char *value,
-                              const char *unit, uint16_t borderColor) {
+                              const char *unit, uint16_t borderColor,
+                              uint16_t statusColor, int valueFont) {
     display.fillRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
                           CardColor);
     display.drawRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
@@ -95,33 +93,26 @@ void renderLayout(Display &display, const SystemState &state, int originX,
     display.setTextDatum(ML_DATUM);
     display.setTextColor(TFT_LIGHTGREY, CardColor);
     display.drawString(label, x(cardX + 8), y(SensorY + 10), 1);
+    display.fillCircle(x(cardX + SensorWidth - 10), y(SensorY + 10), 3,
+                       statusColor);
+    display.setTextDatum(MC_DATUM);
     display.setTextColor(TFT_WHITE, CardColor);
-    display.drawString(value, x(cardX + 8), y(SensorY + 39), 4);
+    display.drawString(value, x(cardX + SensorWidth / 2), y(SensorY + 48),
+                       valueFont);
     display.setTextColor(TFT_LIGHTGREY, CardColor);
-    display.drawString(unit, x(cardX + 106), y(SensorY + 39), 2);
+    display.drawString(unit, x(cardX + SensorWidth / 2), y(SensorY + 78), 2);
   };
 
   char valueText[24];
   formatTemperature(valueText, sizeof(valueText), state);
-  drawMetric(TempX, "TEMP", valueText, "C", TFT_CYAN);
+  drawMetric(TempX, "TEMP", valueText, "C", TFT_CYAN,
+             state.temperatureValid ? TFT_CYAN : TFT_ORANGE, 3);
   formatHumidity(valueText, sizeof(valueText), state);
-  drawMetric(HumidityX, "HUMIDITY", valueText, "%", TFT_CYAN);
-
-  display.fillRoundRect(x(Co2X), y(Co2Y), Co2Width, Co2Height, 4, CardColor);
-  display.drawRoundRect(x(Co2X), y(Co2Y), Co2Width, Co2Height, 4,
-                        TFT_YELLOW);
-  display.setTextDatum(ML_DATUM);
-  display.setTextColor(TFT_YELLOW, CardColor);
-  display.drawString("CO2", x(Co2X + 9), y(Co2Y + 18), 2);
+  drawMetric(HumidityX, "HUMIDITY", valueText, "%", TFT_CYAN,
+             state.humidityValid ? TFT_CYAN : TFT_ORANGE, 3);
   formatCo2(valueText, sizeof(valueText), state);
-  display.setTextColor(TFT_WHITE, CardColor);
-  display.drawString(valueText, x(Co2X + 61), y(Co2Y + 18), 3);
-  display.setTextColor(TFT_YELLOW, CardColor);
-  display.drawString("ppm", x(Co2X + 132), y(Co2Y + 18), 1);
-  display.setTextDatum(MR_DATUM);
-  display.setTextColor(state.co2Valid ? TFT_GREEN : TFT_ORANGE, CardColor);
-  display.drawString(state.co2Valid ? "NORMAL" : "NO DATA", x(Co2X + Co2Width - 8),
-                     y(Co2Y + 18), 1);
+  drawMetric(Co2X, "CO2", valueText, "ppm", TFT_YELLOW,
+             state.co2Valid ? TFT_GREEN : TFT_ORANGE, 2);
 
   display.drawFastHLine(x(8), y(SeparatorY), Config::DynamicAreaWidth - 16,
                         MutedColor);
