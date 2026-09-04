@@ -87,14 +87,14 @@ void InputManager::update(uint32_t now, SystemState &state) {
     state.markDisplayDirty();
   }
 
-  if (pushPressed) {
+  if (KOPressed) {
     state.settingsItemSelected = !state.settingsItemSelected;
     state.markDisplayDirty();
     Serial.printf("[INPUT] Item %s\n",
                   state.settingsItemSelected ? "selected" : "released");
   }
 
-  if (KOPressed) {
+  if (pushPressed) {
     if (state.settingsItemSelected) {
       switch (state.settingsItem) {
         case SettingsItem::SetTemperature:
