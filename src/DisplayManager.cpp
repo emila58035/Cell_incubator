@@ -104,12 +104,10 @@ void renderLayout(Display &display, const SystemState &state, int originX,
     display.drawString(unit, x(cardX + SensorWidth - 7), y(SensorY + 59), 2);
 
     display.setTextDatum(ML_DATUM);
-    display.setTextColor(MutedColor, CardColor);
-    display.drawString("STATUS", x(cardX + 7), y(SensorY + 87), 1);
-    display.setTextDatum(MR_DATUM);
     display.setTextColor(statusColor, CardColor);
-    display.drawString(statusText, x(cardX + SensorWidth - 7),
-                       y(SensorY + 87), 1);
+    display.drawString(statusText, x(cardX + 7), y(SensorY + 87), 1);
+    display.fillCircle(x(cardX + SensorWidth - 9),
+                       y(SensorY + SensorHeight - 9), 3, statusColor);
   };
 
   char valueText[24];
