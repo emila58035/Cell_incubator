@@ -10,9 +10,13 @@ uint16_t selectionColor(const SystemState &state) {
   return state.settingsItemSelected ? TFT_YELLOW : TFT_CYAN;
 }
 
+constexpr uint16_t ScreenColor = 0x10A2;
+constexpr uint16_t CardColor = 0x2104;
+constexpr uint16_t MutedColor = 0x8410;
+
 void formatTemperature(char *buffer, size_t size, const SystemState &state) {
   if (state.temperatureValid) {
-    snprintf(buffer, size, "%.1f C", state.temperature);
+    snprintf(buffer, size, "%.1f", state.temperature);
   } else {
     snprintf(buffer, size, "--");
   }
@@ -20,7 +24,7 @@ void formatTemperature(char *buffer, size_t size, const SystemState &state) {
 
 void formatHumidity(char *buffer, size_t size, const SystemState &state) {
   if (state.humidityValid) {
-    snprintf(buffer, size, "%.1f %%", state.humidity);
+    snprintf(buffer, size, "%.1f", state.humidity);
   } else {
     snprintf(buffer, size, "--");
   }
@@ -28,7 +32,7 @@ void formatHumidity(char *buffer, size_t size, const SystemState &state) {
 
 void formatCo2(char *buffer, size_t size, const SystemState &state) {
   if (state.co2Valid) {
-    snprintf(buffer, size, "%lu ppm", static_cast<unsigned long>(state.co2));
+    snprintf(buffer, size, "%lu", static_cast<unsigned long>(state.co2));
   } else {
     snprintf(buffer, size, "--");
   }
@@ -43,15 +47,138 @@ void formatLight(char *buffer, size_t size, const SystemState &state) {
 }
 
 void formatSetTemperature(char *buffer, size_t size, const SystemState &state) {
-  snprintf(buffer, size, "%.1f C  %s", state.setpoint,
-           onOff(state.heatingEnabled));
+  snprintf(buffer, size, "%.1f C", state.setpoint);
 }
 
-void formatPower(char *buffer, size_t size, const SystemState &state) {
-  const double power = state.heatingEnabled
-                           ? state.heaterOutput / Config::HeaterPwmMaximum * 100.0
-                           : 0.0;
-  snprintf(buffer, size, "HEATER POWER %.0f%%", power);
+uint8_t heatingPowerPercent(const SystemState &state) {
+  if (!state.heatingEnabled) {
+    return 0;
+  }
+
+  const double power = state.heaterOutput / Config::HeaterPwmMaximum * 100.0;
+  return static_cast<uint8_t>(constrain(round(power), 0.0, 100.0));
+}
+
+// The same layout is used for the sprite and the fallback direct renderer.
+template <typename Display>
+void renderLayout(Display &display, const SystemState &state, int originX,
+                  int originY) {
+  constexpr int TempX = 8;
+  constexpr int HumidityX = 156;
+  constexpr int SensorY = 5;
+  constexpr int SensorWidth = 140;
+  constexpr int SensorHeight = 56;
+  constexpr int Co2X = 8;
+  constexpr int Co2Y = 67;
+  constexpr int Co2Width = 288;
+  constexpr int Co2Height = 37;
+  constexpr int SeparatorY = 112;
+  constexpr int ControlLabelY = 124;
+  constexpr int ControlRow1Y = 130;
+  constexpr int ControlRow2Y = 165;
+  constexpr int ControlWidth = 88;
+  constexpr int ControlHeight = 30;
+  constexpr int FooterY = 211;
+
+  const auto x = [originX](int value) { return originX + value; };
+  const auto y = [originY](int value) { return originY + value; };
+
+  display.fillRect(originX, originY, Config::DynamicAreaWidth,
+                   Config::DynamicAreaHeight, ScreenColor);
+
+  const auto drawMetric = [&](int cardX, const char *label, const char *value,
+                              const char *unit, uint16_t borderColor) {
+    display.fillRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
+                          CardColor);
+    display.drawRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
+                          borderColor);
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_LIGHTGREY, CardColor);
+    display.drawString(label, x(cardX + 8), y(SensorY + 10), 1);
+    display.setTextColor(TFT_WHITE, CardColor);
+    display.drawString(value, x(cardX + 8), y(SensorY + 39), 4);
+    display.setTextColor(TFT_LIGHTGREY, CardColor);
+    display.drawString(unit, x(cardX + 106), y(SensorY + 39), 2);
+  };
+
+  char valueText[24];
+  formatTemperature(valueText, sizeof(valueText), state);
+  drawMetric(TempX, "TEMP", valueText, "C", TFT_CYAN);
+  formatHumidity(valueText, sizeof(valueText), state);
+  drawMetric(HumidityX, "HUMIDITY", valueText, "%", TFT_CYAN);
+
+  display.fillRoundRect(x(Co2X), y(Co2Y), Co2Width, Co2Height, 4, CardColor);
+  display.drawRoundRect(x(Co2X), y(Co2Y), Co2Width, Co2Height, 4,
+                        TFT_YELLOW);
+  display.setTextDatum(ML_DATUM);
+  display.setTextColor(TFT_YELLOW, CardColor);
+  display.drawString("CO2", x(Co2X + 9), y(Co2Y + 18), 2);
+  formatCo2(valueText, sizeof(valueText), state);
+  display.setTextColor(TFT_WHITE, CardColor);
+  display.drawString(valueText, x(Co2X + 61), y(Co2Y + 18), 3);
+  display.setTextColor(TFT_YELLOW, CardColor);
+  display.drawString("ppm", x(Co2X + 132), y(Co2Y + 18), 1);
+  display.setTextDatum(MR_DATUM);
+  display.setTextColor(state.co2Valid ? TFT_GREEN : TFT_ORANGE, CardColor);
+  display.drawString(state.co2Valid ? "NORMAL" : "NO DATA", x(Co2X + Co2Width - 8),
+                     y(Co2Y + 18), 1);
+
+  display.drawFastHLine(x(8), y(SeparatorY), Config::DynamicAreaWidth - 16,
+                        MutedColor);
+  display.setTextDatum(ML_DATUM);
+  display.setTextColor(MutedColor, ScreenColor);
+  display.drawString("CONTROL", x(8), y(ControlLabelY), 1);
+
+  const auto drawControl = [&](SettingsItem item, int cardX, int cardY,
+                               const char *label, const char *value,
+                               uint16_t valueColor, bool active) {
+    const bool current = state.settingsItem == item;
+    const uint16_t borderColor = current ? selectionColor(state) : MutedColor;
+    display.fillRoundRect(x(cardX), y(cardY), ControlWidth, ControlHeight, 3,
+                          CardColor);
+    display.drawRoundRect(x(cardX), y(cardY), ControlWidth, ControlHeight, 3,
+                          borderColor);
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_LIGHTGREY, CardColor);
+    display.drawString(label, x(cardX + 7), y(cardY + 8), 1);
+    display.setTextColor(valueColor, CardColor);
+    display.drawString(value, x(cardX + 7), y(cardY + 21), 2);
+    display.fillCircle(x(cardX + ControlWidth - 9), y(cardY + 15), 4,
+                       active ? valueColor : MutedColor);
+  };
+
+  formatSetTemperature(valueText, sizeof(valueText), state);
+  drawControl(SettingsItem::SetTemperature, 8, ControlRow1Y, "SET TEMP",
+               valueText, TFT_WHITE, state.heatingEnabled);
+  formatLight(valueText, sizeof(valueText), state);
+  drawControl(SettingsItem::Light, 108, ControlRow1Y, "LIGHT", valueText,
+              state.lightEnabled ? TFT_YELLOW : TFT_WHITE, state.lightEnabled);
+  drawControl(SettingsItem::Uv, 208, ControlRow1Y, "UV",
+              onOff(state.uvEnabled), state.uvEnabled ? TFT_YELLOW : TFT_WHITE,
+              state.uvEnabled);
+  drawControl(SettingsItem::Fan, 8, ControlRow2Y, "FAN", onOff(state.fanEnabled),
+              state.fanEnabled ? TFT_GREEN : TFT_WHITE, state.fanEnabled);
+
+  const uint8_t power = heatingPowerPercent(state);
+  char powerText[8];
+  snprintf(powerText, sizeof(powerText), "%u%%", power);
+  drawControl(SettingsItem::Count, 108, ControlRow2Y, "HEAT POWER", powerText,
+              state.heatingEnabled ? TFT_ORANGE : TFT_WHITE, false);
+  display.fillRoundRect(x(159), y(ControlRow2Y + 22), 38, 4, 2, MutedColor);
+  display.fillRoundRect(x(159), y(ControlRow2Y + 22), power * 38 / 100, 4, 2,
+                        TFT_ORANGE);
+
+  drawControl(SettingsItem::Count, 208, ControlRow2Y, "HEATER",
+              onOff(state.heatingEnabled),
+              state.heatingEnabled ? TFT_ORANGE : TFT_WHITE,
+              state.heatingEnabled);
+
+  display.setTextDatum(ML_DATUM);
+  display.setTextColor(MutedColor, ScreenColor);
+  display.drawString("ENCODER: SELECT / ADJUST", x(8), y(FooterY), 1);
+  display.setTextDatum(MR_DATUM);
+  display.drawString("KO: TOGGLE", x(Config::DynamicAreaWidth - 8), y(FooterY),
+                     1);
 }
 
 }  // namespace
@@ -94,124 +221,11 @@ void DisplayManager::update(SystemState &state) {
 }
 
 void DisplayManager::renderSprite(const SystemState &state) {
-  constexpr int LabelX = 12;
-  constexpr int ValueX = Config::DynamicAreaWidth - 12;
-  constexpr int SensorRow1Y = 13;
-  constexpr int SensorRow2Y = 35;
-  constexpr int SensorRow3Y = 57;
-  constexpr int SeparatorY = 70;
-  constexpr int RowX = 7;
-  constexpr int RowWidth = Config::DynamicAreaWidth - RowX * 2;
-  constexpr int RowHeight = 26;
-  constexpr int SetTemperatureY = 78;
-  constexpr int LightY = 107;
-  constexpr int UvY = 136;
-  constexpr int FanY = 165;
-  constexpr int FooterY = 207;
-
-  sprite_.fillSprite(TFT_BLACK);
-  sprite_.setTextSize(1);
-  sprite_.setTextDatum(ML_DATUM);
-  sprite_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  sprite_.drawString("TEMP", LabelX, SensorRow1Y, 2);
-  sprite_.drawString("HUMIDITY", LabelX, SensorRow2Y, 2);
-  sprite_.drawString("CO2", LabelX, SensorRow3Y, 2);
-
-  char valueText[24];
-  sprite_.setTextDatum(MR_DATUM);
-  formatTemperature(valueText, sizeof(valueText), state);
-  sprite_.drawString(valueText, ValueX, SensorRow1Y, 2);
-  formatHumidity(valueText, sizeof(valueText), state);
-  sprite_.drawString(valueText, ValueX, SensorRow2Y, 2);
-  formatCo2(valueText, sizeof(valueText), state);
-  sprite_.drawString(valueText, ValueX, SensorRow3Y, 2);
-  sprite_.drawFastHLine(0, SeparatorY, Config::DynamicAreaWidth, TFT_DARKGREY);
-
-  const auto drawRow = [&](SettingsItem item, int y, const char *label,
-                           const char *value) {
-    if (state.settingsItem == item) {
-      sprite_.drawRect(RowX, y, RowWidth, RowHeight, selectionColor(state));
-    }
-    sprite_.setTextDatum(ML_DATUM);
-    sprite_.setTextColor(TFT_WHITE, TFT_BLACK);
-    sprite_.drawString(label, RowX + 10, y + RowHeight / 2, 2);
-    sprite_.setTextDatum(MR_DATUM);
-    sprite_.drawString(value, RowX + RowWidth - 10, y + RowHeight / 2, 2);
-  };
-
-  formatSetTemperature(valueText, sizeof(valueText), state);
-  drawRow(SettingsItem::SetTemperature, SetTemperatureY, "SET TEMP", valueText);
-  formatLight(valueText, sizeof(valueText), state);
-  drawRow(SettingsItem::Light, LightY, "LIGHT", valueText);
-  drawRow(SettingsItem::Uv, UvY, "UV", onOff(state.uvEnabled));
-  drawRow(SettingsItem::Fan, FanY, "FAN", onOff(state.fanEnabled));
-
-  formatPower(valueText, sizeof(valueText), state);
-  sprite_.setTextDatum(MC_DATUM);
-  sprite_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  sprite_.drawString(valueText, Config::DynamicAreaWidth / 2, FooterY, 2);
+  sprite_.fillSprite(ScreenColor);
+  renderLayout(sprite_, state, 0, 0);
   sprite_.pushSprite(Config::DynamicAreaX, Config::DynamicAreaY);
 }
 
 void DisplayManager::renderDirect(const SystemState &state) {
-  constexpr int LabelX = Config::DynamicAreaX + 12;
-  constexpr int ValueX = Config::DynamicAreaX + Config::DynamicAreaWidth - 12;
-  constexpr int SensorRow1Y = Config::DynamicAreaY + 13;
-  constexpr int SensorRow2Y = Config::DynamicAreaY + 35;
-  constexpr int SensorRow3Y = Config::DynamicAreaY + 57;
-  constexpr int SeparatorY = Config::DynamicAreaY + 70;
-  constexpr int RowX = Config::DynamicAreaX + 7;
-  constexpr int RowWidth = Config::DynamicAreaWidth - 14;
-  constexpr int RowHeight = 26;
-  constexpr int SetTemperatureY = Config::DynamicAreaY + 78;
-  constexpr int LightY = Config::DynamicAreaY + 107;
-  constexpr int UvY = Config::DynamicAreaY + 136;
-  constexpr int FanY = Config::DynamicAreaY + 165;
-  constexpr int FooterY = Config::DynamicAreaY + 207;
-
-  tft_.fillRect(Config::DynamicAreaX, Config::DynamicAreaY,
-                Config::DynamicAreaWidth, Config::DynamicAreaHeight,
-                TFT_BLACK);
-  tft_.setTextSize(1);
-  tft_.setTextDatum(ML_DATUM);
-  tft_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  tft_.drawString("TEMP", LabelX, SensorRow1Y, 2);
-  tft_.drawString("HUMIDITY", LabelX, SensorRow2Y, 2);
-  tft_.drawString("CO2", LabelX, SensorRow3Y, 2);
-
-  char valueText[24];
-  tft_.setTextDatum(MR_DATUM);
-  formatTemperature(valueText, sizeof(valueText), state);
-  tft_.drawString(valueText, ValueX, SensorRow1Y, 2);
-  formatHumidity(valueText, sizeof(valueText), state);
-  tft_.drawString(valueText, ValueX, SensorRow2Y, 2);
-  formatCo2(valueText, sizeof(valueText), state);
-  tft_.drawString(valueText, ValueX, SensorRow3Y, 2);
-  tft_.drawFastHLine(Config::DynamicAreaX, SeparatorY,
-                     Config::DynamicAreaWidth, TFT_DARKGREY);
-
-  const auto drawRow = [&](SettingsItem item, int y, const char *label,
-                           const char *value) {
-    if (state.settingsItem == item) {
-      tft_.drawRect(RowX, y, RowWidth, RowHeight, selectionColor(state));
-    }
-    tft_.setTextDatum(ML_DATUM);
-    tft_.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft_.drawString(label, RowX + 10, y + RowHeight / 2, 2);
-    tft_.setTextDatum(MR_DATUM);
-    tft_.drawString(value, RowX + RowWidth - 10, y + RowHeight / 2, 2);
-  };
-
-  formatSetTemperature(valueText, sizeof(valueText), state);
-  drawRow(SettingsItem::SetTemperature, SetTemperatureY, "SET TEMP", valueText);
-  formatLight(valueText, sizeof(valueText), state);
-  drawRow(SettingsItem::Light, LightY, "LIGHT", valueText);
-  drawRow(SettingsItem::Uv, UvY, "UV", onOff(state.uvEnabled));
-  drawRow(SettingsItem::Fan, FanY, "FAN", onOff(state.fanEnabled));
-
-  formatPower(valueText, sizeof(valueText), state);
-  tft_.setTextDatum(MC_DATUM);
-  tft_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  tft_.drawString(valueText, Config::DynamicAreaX + Config::DynamicAreaWidth / 2,
-                  FooterY, 2);
+  renderLayout(tft_, state, Config::DynamicAreaX, Config::DynamicAreaY);
 }
