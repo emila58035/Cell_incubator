@@ -85,7 +85,8 @@ void renderLayout(Display &display, const SystemState &state, int originX,
 
   const auto drawMetric = [&](int cardX, const char *label, const char *value,
                               const char *unit, uint16_t borderColor,
-                              uint16_t statusColor, int valueFont) {
+                              uint16_t statusColor, const char *statusText,
+                              int valueFont) {
     display.fillRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
                           CardColor);
     display.drawRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
@@ -93,30 +94,37 @@ void renderLayout(Display &display, const SystemState &state, int originX,
     display.setTextDatum(ML_DATUM);
     display.setTextColor(TFT_LIGHTGREY, CardColor);
     display.drawString(label, x(cardX + 7), y(SensorY + 13), 2);
-    display.fillCircle(x(cardX + SensorWidth - 9),
-                       y(SensorY + SensorHeight - 9), 3, statusColor);
 
-    const int valueWidth = display.textWidth(value, valueFont);
-    const int unitWidth = display.textWidth(unit, 2);
-    const int groupWidth = valueWidth + 4 + unitWidth;
-    const int groupX = cardX + (SensorWidth - groupWidth) / 2;
+    // Keep the value left aligned and the unit at a stable right edge.
     display.setTextDatum(ML_DATUM);
     display.setTextColor(TFT_WHITE, CardColor);
-    display.drawString(value, x(groupX), y(SensorY + 59), valueFont);
+    display.drawString(value, x(cardX + 7), y(SensorY + 59), valueFont);
+    display.setTextDatum(MR_DATUM);
     display.setTextColor(TFT_LIGHTGREY, CardColor);
-    display.drawString(unit, x(groupX + valueWidth + 4), y(SensorY + 59), 2);
+    display.drawString(unit, x(cardX + SensorWidth - 7), y(SensorY + 59), 2);
+
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(MutedColor, CardColor);
+    display.drawString("STATUS", x(cardX + 7), y(SensorY + 87), 1);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(statusColor, CardColor);
+    display.drawString(statusText, x(cardX + SensorWidth - 7),
+                       y(SensorY + 87), 1);
   };
 
   char valueText[24];
   formatTemperature(valueText, sizeof(valueText), state);
   drawMetric(TempX, "TEMP", valueText, "C", TFT_CYAN,
-             state.temperatureValid ? TFT_CYAN : TFT_ORANGE, 4);
+             state.temperatureValid ? TFT_CYAN : TFT_ORANGE,
+             state.temperatureValid ? "OK" : "ERROR", 4);
   formatHumidity(valueText, sizeof(valueText), state);
   drawMetric(HumidityX, "HUMIDITY", valueText, "%", TFT_CYAN,
-             state.humidityValid ? TFT_CYAN : TFT_ORANGE, 4);
+             state.humidityValid ? TFT_CYAN : TFT_ORANGE,
+             state.humidityValid ? "OK" : "ERROR", 4);
   formatCo2(valueText, sizeof(valueText), state);
   drawMetric(Co2X, "CO2", valueText, "ppm", TFT_YELLOW,
-             state.co2Valid ? TFT_GREEN : TFT_ORANGE, 2);
+             state.co2Valid ? TFT_GREEN : TFT_ORANGE,
+             state.co2Valid ? "OK" : "ERROR", 2);
 
   display.drawFastHLine(x(8), y(SeparatorY), Config::DynamicAreaWidth - 16,
                         MutedColor);
@@ -148,6 +156,10 @@ void renderLayout(Display &display, const SystemState &state, int originX,
   formatLight(valueText, sizeof(valueText), state);
   drawControl(SettingsItem::Light, 108, ControlRow1Y, "LIGHT", valueText,
               state.lightEnabled ? TFT_YELLOW : TFT_WHITE, state.lightEnabled);
+  const uint8_t lightBrightness = state.lightEnabled ? state.lightBrightness : 0;
+  display.fillRoundRect(x(154), y(ControlRow1Y + 22), 27, 4, 2, MutedColor);
+  display.fillRoundRect(x(154), y(ControlRow1Y + 22),
+                        lightBrightness * 27 / 100, 4, 2, TFT_YELLOW);
   drawControl(SettingsItem::Uv, 208, ControlRow1Y, "UV",
               onOff(state.uvEnabled), state.uvEnabled ? TFT_YELLOW : TFT_WHITE,
               state.uvEnabled);
