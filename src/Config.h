@@ -6,8 +6,8 @@
 namespace Config {
 constexpr uint32_t DebugBaudRate = 115200;
 
-constexpr int AhtSdaPin = 1;
-constexpr int AhtSclPin = 2;
+constexpr int AhtSdaPin = 7;
+constexpr int AhtSclPin = 8;
 constexpr uint8_t AhtAddress = 0x38;
 constexpr uint32_t AhtSampleIntervalMs = 1000;
 constexpr uint32_t AhtReconnectIntervalMs = 5000;
@@ -46,7 +46,7 @@ constexpr int EncoderAPin = 41;
 constexpr int EncoderBPin = 42;
 constexpr int EncoderPushPin = 45;
 constexpr int KOPIN  = 46;
-constexpr uint32_t PushDebounceMs = 200;
+constexpr uint32_t PushDebounceMs = 100;
 
 constexpr double DefaultSetpoint = 37.0;
 constexpr double MinimumSetpoint = 10.0;
