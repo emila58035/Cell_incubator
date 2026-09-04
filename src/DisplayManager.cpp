@@ -64,10 +64,10 @@ template <typename Display>
 void renderLayout(Display &display, const SystemState &state, int originX,
                   int originY) {
   constexpr int TempX = 8;
-  constexpr int HumidityX = 108;
-  constexpr int Co2X = 208;
+  constexpr int HumidityX = 107;
+  constexpr int Co2X = 206;
   constexpr int SensorY = 5;
-  constexpr int SensorWidth = 88;
+  constexpr int SensorWidth = 98;
   constexpr int SensorHeight = 99;
   constexpr int SeparatorY = 112;
   constexpr int ControlLabelY = 124;
@@ -90,17 +90,21 @@ void renderLayout(Display &display, const SystemState &state, int originX,
                           CardColor);
     display.drawRoundRect(x(cardX), y(SensorY), SensorWidth, SensorHeight, 4,
                           borderColor);
-    display.setTextDatum(ML_DATUM);
-    display.setTextColor(TFT_LIGHTGREY, CardColor);
-    display.drawString(label, x(cardX + 8), y(SensorY + 10), 1);
-    display.fillCircle(x(cardX + SensorWidth - 10), y(SensorY + 10), 3,
-                       statusColor);
     display.setTextDatum(MC_DATUM);
-    display.setTextColor(TFT_WHITE, CardColor);
-    display.drawString(value, x(cardX + SensorWidth / 2), y(SensorY + 48),
-                       valueFont);
     display.setTextColor(TFT_LIGHTGREY, CardColor);
-    display.drawString(unit, x(cardX + SensorWidth / 2), y(SensorY + 78), 2);
+    display.drawString(label, x(cardX + SensorWidth / 2), y(SensorY + 14), 2);
+    display.fillCircle(x(cardX + SensorWidth - 9), y(SensorY + SensorHeight - 9), 3,
+                       statusColor);
+
+    const int valueWidth = display.textWidth(value, valueFont);
+    const int unitWidth = display.textWidth(unit, 2);
+    const int groupWidth = valueWidth + 4 + unitWidth;
+    const int groupX = cardX + (SensorWidth - groupWidth) / 2;
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_WHITE, CardColor);
+    display.drawString(value, x(groupX), y(SensorY + 59), valueFont);
+    display.setTextColor(TFT_LIGHTGREY, CardColor);
+    display.drawString(unit, x(groupX + valueWidth + 4), y(SensorY + 59), 2);
   };
 
   char valueText[24];
