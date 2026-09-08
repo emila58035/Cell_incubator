@@ -188,10 +188,10 @@ void renderLayout(Display &display, const SystemState &state, int originX,
 
   display.setTextDatum(ML_DATUM);
   display.setTextColor(MutedColor, ScreenColor);
-  display.drawString("KO: SELECT", x(8), y(FooterY), 1);
+  display.drawString("TURN: NAV/ADJ", x(8), y(FooterY), 1);
   display.setTextDatum(MR_DATUM);
-  display.drawString("PUSH: TOGGLE", x(Config::DynamicAreaWidth - 8),
-                     y(FooterY), 1);
+  display.drawString("KO: SELECT  PUSH: ACTION",
+                     x(Config::DynamicAreaWidth - 8), y(FooterY), 1);
 }
 
 }  // namespace
