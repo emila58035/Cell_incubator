@@ -48,6 +48,8 @@ constexpr int EncoderPushPin = 45;
 constexpr int KOPIN  = 46;
 constexpr uint32_t PushDebounceMs = 100;
 
+constexpr uint32_t SettingsSaveDelayMs = 1000;
+
 constexpr double DefaultSetpoint = 37.0;
 constexpr double MinimumSetpoint = 10.0;
 constexpr double MaximumSetpoint = 100.0;
