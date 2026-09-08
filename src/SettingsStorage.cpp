@@ -10,11 +10,12 @@ namespace {
 constexpr char StorageNamespace[] = "incubator";
 constexpr char StorageKey[] = "settings";
 constexpr uint32_t StorageMagic = 0x43494E43;
-constexpr uint16_t StorageVersion = 1;
+constexpr uint16_t StorageVersion = 2;
+constexpr uint16_t LegacyStorageVersion = 1;
 
 constexpr uint8_t LightEnabledFlag = 1 << 0;
-constexpr uint8_t UvEnabledFlag = 1 << 1;
-constexpr uint8_t FanEnabledFlag = 1 << 2;
+constexpr uint8_t FanEnabledFlag = 1 << 1;
+constexpr uint8_t LegacyFanEnabledFlag = 1 << 2;
 
 struct StoredSettings {
   uint32_t magic;
@@ -40,35 +41,28 @@ uint32_t calculateChecksum(const StoredSettings &settings) {
 
 void SettingsStorage::begin(SystemState &state) {
   state.heatingEnabled = false;
-  if (!load(state)) {
+  const bool loaded = load(state);
+  if (!loaded) {
     Serial.println("[SETTINGS] No valid saved settings; using defaults");
   }
 
-  observed_ = capture(state);
-  pendingSave_ = false;
-  logSettings("Active", observed_);
+  state.settingsDirty = !loaded;
+  state.settingsSaveRequested = false;
+  state.settingsSaveFailed = false;
+  logSettings("Active", capture(state));
   Serial.println("[SETTINGS] Heating=OFF (not persisted)");
   state.markDisplayDirty();
 }
 
-void SettingsStorage::update(uint32_t now, const SystemState &state) {
-  const Snapshot current = capture(state);
-  if (!equal(current, observed_)) {
-    observed_ = current;
-    pendingSave_ = true;
-    lastChangeTime_ = now;
+bool SettingsStorage::saveNow(SystemState &state) {
+  const bool saved = save(capture(state));
+  state.settingsSaveRequested = false;
+  state.settingsSaveFailed = !saved;
+  if (saved) {
+    state.settingsDirty = false;
   }
-
-  if (!pendingSave_ ||
-      now - lastChangeTime_ < Config::SettingsSaveDelayMs) {
-    return;
-  }
-
-  if (save(observed_)) {
-    pendingSave_ = false;
-  } else {
-    lastChangeTime_ = now;
-  }
+  state.markDisplayDirty();
+  return saved;
 }
 
 SettingsStorage::Snapshot SettingsStorage::capture(const SystemState &state) {
@@ -76,17 +70,8 @@ SettingsStorage::Snapshot SettingsStorage::capture(const SystemState &state) {
   snapshot.setpointTenths = static_cast<int16_t>(round(state.setpoint * 10.0));
   snapshot.lightBrightness = min<uint8_t>(state.lightBrightness, 100);
   snapshot.lightEnabled = state.lightEnabled && snapshot.lightBrightness > 0;
-  snapshot.uvEnabled = state.uvEnabled;
   snapshot.fanEnabled = state.fanEnabled;
   return snapshot;
-}
-
-bool SettingsStorage::equal(const Snapshot &left, const Snapshot &right) {
-  return left.setpointTenths == right.setpointTenths &&
-         left.lightBrightness == right.lightBrightness &&
-         left.lightEnabled == right.lightEnabled &&
-         left.uvEnabled == right.uvEnabled &&
-         left.fanEnabled == right.fanEnabled;
 }
 
 bool SettingsStorage::load(SystemState &state) {
@@ -110,7 +95,8 @@ bool SettingsStorage::load(SystemState &state) {
       static_cast<int16_t>(round(Config::MaximumSetpoint * 10.0));
   const bool valid =
       bytesRead == sizeof(stored) && stored.magic == StorageMagic &&
-      stored.version == StorageVersion &&
+      (stored.version == StorageVersion ||
+       stored.version == LegacyStorageVersion) &&
       stored.checksum == calculateChecksum(stored) &&
       stored.setpointTenths >= minimumSetpoint &&
       stored.setpointTenths <= maximumSetpoint &&
@@ -123,8 +109,10 @@ bool SettingsStorage::load(SystemState &state) {
   state.lightBrightness = stored.lightBrightness;
   state.lightEnabled = (stored.flags & LightEnabledFlag) != 0 &&
                        state.lightBrightness > 0;
-  state.uvEnabled = (stored.flags & UvEnabledFlag) != 0;
-  state.fanEnabled = (stored.flags & FanEnabledFlag) != 0;
+  const uint8_t fanFlag = stored.version == LegacyStorageVersion
+                              ? LegacyFanEnabledFlag
+                              : FanEnabledFlag;
+  state.fanEnabled = (stored.flags & fanFlag) != 0;
   Serial.println("[SETTINGS] Loaded from NVS");
   return true;
 }
@@ -136,7 +124,6 @@ bool SettingsStorage::save(const Snapshot &settings) {
   stored.setpointTenths = settings.setpointTenths;
   stored.lightBrightness = settings.lightBrightness;
   stored.flags = (settings.lightEnabled ? LightEnabledFlag : 0) |
-                 (settings.uvEnabled ? UvEnabledFlag : 0) |
                  (settings.fanEnabled ? FanEnabledFlag : 0);
   stored.checksum = calculateChecksum(stored);
 
@@ -161,9 +148,8 @@ bool SettingsStorage::save(const Snapshot &settings) {
 void SettingsStorage::logSettings(const char *event,
                                   const Snapshot &settings) {
   Serial.printf(
-      "[SETTINGS] %s: setpoint=%.1f C, light=%s/%u%%, uv=%s, fan=%s\n",
+      "[SETTINGS] %s: setpoint=%.1f C, light=%s/%u%%, fan=%s\n",
       event, settings.setpointTenths / 10.0,
       settings.lightEnabled ? "ON" : "OFF", settings.lightBrightness,
-      settings.uvEnabled ? "ON" : "OFF",
       settings.fanEnabled ? "ON" : "OFF");
 }

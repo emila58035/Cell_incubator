@@ -158,11 +158,19 @@ void renderLayout(Display &display, const SystemState &state, int originX,
   display.fillRoundRect(x(154), y(ControlRow1Y + 22), 27, 4, 2, MutedColor);
   display.fillRoundRect(x(154), y(ControlRow1Y + 22),
                         lightBrightness * 27 / 100, 4, 2, TFT_YELLOW);
-  drawControl(SettingsItem::Uv, 208, ControlRow1Y, "UV",
-              onOff(state.uvEnabled), state.uvEnabled ? TFT_YELLOW : TFT_WHITE,
-              state.uvEnabled);
-  drawControl(SettingsItem::Fan, 8, ControlRow2Y, "FAN", onOff(state.fanEnabled),
+  drawControl(SettingsItem::Fan, 208, ControlRow1Y, "FAN",
+              onOff(state.fanEnabled),
               state.fanEnabled ? TFT_GREEN : TFT_WHITE, state.fanEnabled);
+
+  const char *saveText = state.settingsSaveFailed
+                             ? "ERROR"
+                             : (state.settingsDirty ? "SAVE" : "SAVED");
+  const uint16_t saveColor = state.settingsSaveFailed
+                                 ? TFT_ORANGE
+                                 : (state.settingsDirty ? TFT_YELLOW
+                                                        : TFT_GREEN);
+  drawControl(SettingsItem::Save, 8, ControlRow2Y, "SAVE SET", saveText,
+              saveColor, true);
 
   const uint8_t power = heatingPowerPercent(state);
   char powerText[8];

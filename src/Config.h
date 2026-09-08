@@ -25,9 +25,6 @@ constexpr uint32_t LightPwmMaximum = 255;
 constexpr bool LightPwmActiveLow = true;
 constexpr uint8_t LightBrightnessStep = 5;
 
-constexpr int UvOutputPin = 39;
-constexpr bool UvOutputActiveLow = true;
-
 constexpr int FanOutputPin = 47;
 constexpr bool FanOutputActiveLow = true;
 
@@ -47,8 +44,6 @@ constexpr int EncoderBPin = 42;
 constexpr int EncoderPushPin = 45;
 constexpr int KOPIN  = 46;
 constexpr uint32_t PushDebounceMs = 100;
-
-constexpr uint32_t SettingsSaveDelayMs = 1000;
 
 constexpr double DefaultSetpoint = 37.0;
 constexpr double MinimumSetpoint = 10.0;

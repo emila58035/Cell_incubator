@@ -57,10 +57,14 @@ void InputManager::update(uint32_t now, SystemState &state) {
         state.setpoint = round(state.setpoint * 10.0) / 10.0;
         state.setpoint = constrain(state.setpoint, Config::MinimumSetpoint,
                                    Config::MaximumSetpoint);
+        state.settingsDirty = true;
+        state.settingsSaveFailed = false;
         state.markDisplayDirty();
         Serial.printf("[INPUT] Set temperature=%.1f C\n", state.setpoint);
         break;
       case SettingsItem::Light: {
+        const uint8_t previousBrightness = state.lightBrightness;
+        const bool previouslyEnabled = state.lightEnabled;
         const int startingBrightness = state.lightEnabled
                                            ? state.lightBrightness
                                            : 0;
@@ -68,13 +72,18 @@ void InputManager::update(uint32_t now, SystemState &state) {
             startingBrightness + steps * Config::LightBrightnessStep, 0, 100);
         state.lightBrightness = brightness;
         state.lightEnabled = brightness > 0;
+        if (state.lightBrightness != previousBrightness ||
+            state.lightEnabled != previouslyEnabled) {
+          state.settingsDirty = true;
+          state.settingsSaveFailed = false;
+        }
         state.markDisplayDirty();
         Serial.printf("[INPUT] Light brightness=%u%%\n",
                       state.lightBrightness);
         break;
       }
-      case SettingsItem::Uv:
       case SettingsItem::Fan:
+      case SettingsItem::Save:
       case SettingsItem::Count:
         break;
     }
@@ -117,15 +126,19 @@ void InputManager::update(uint32_t now, SystemState &state) {
           Serial.printf("[INPUT] Light=%s, brightness=%u%%\n",
                         state.lightEnabled ? "ON" : "OFF",
                         state.lightBrightness);
-          break;
-        case SettingsItem::Uv:
-          state.uvEnabled = !state.uvEnabled;
-          Serial.printf("[INPUT] UV=%s\n", state.uvEnabled ? "ON" : "OFF");
+          state.settingsDirty = true;
+          state.settingsSaveFailed = false;
           break;
         case SettingsItem::Fan:
           state.fanEnabled = !state.fanEnabled;
           Serial.printf("[INPUT] Fan=%s\n",
                         state.fanEnabled ? "ON" : "OFF");
+          state.settingsDirty = true;
+          state.settingsSaveFailed = false;
+          break;
+        case SettingsItem::Save:
+          state.settingsSaveRequested = true;
+          Serial.println("[INPUT] Manual settings save requested");
           break;
         case SettingsItem::Count:
           break;
