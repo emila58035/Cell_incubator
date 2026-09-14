@@ -6,30 +6,30 @@
 namespace Config {
 constexpr uint32_t DebugBaudRate = 115200;
 
-constexpr int AhtSdaPin = 7;
-constexpr int AhtSclPin = 8;
+constexpr int AhtSdaPin = 1;
+constexpr int AhtSclPin = 2;
 constexpr uint8_t AhtAddress = 0x38;
 constexpr uint32_t AhtSampleIntervalMs = 1000;
 constexpr uint32_t AhtReconnectIntervalMs = 5000;
 
-constexpr int HeaterPwmPin = 3;
+constexpr int HeaterPwmPin = 39;
 constexpr uint32_t HeaterPwmFrequency = 1000;
 constexpr uint8_t HeaterPwmResolution = 8;
 constexpr uint32_t HeaterPwmMaximum = 255;
-constexpr bool HeaterPwmActiveLow = true;
+constexpr bool HeaterPwmActiveLow = false;
 
 constexpr int LightPwmPin = 38;
 constexpr uint32_t LightPwmFrequency = 1000;
 constexpr uint8_t LightPwmResolution = 8;
 constexpr uint32_t LightPwmMaximum = 255;
-constexpr bool LightPwmActiveLow = true;
+constexpr bool LightPwmActiveLow = false;
 constexpr uint8_t LightBrightnessStep = 5;
 
 constexpr int FanOutputPin = 47;
-constexpr bool FanOutputActiveLow = true;
+constexpr bool FanOutputActiveLow = false;
 
 constexpr int S8RxPin = 5;
-constexpr int S8TxPin = 6;
+constexpr int S8TxPin = 4;
 constexpr uint8_t S8UartPort = 1;
 constexpr uint32_t S8BaudRate = 9600;
 constexpr uint32_t Co2ResponseTimeoutMs = 500;

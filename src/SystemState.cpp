@@ -13,7 +13,7 @@ SystemState::SystemState()
       setpoint(Config::DefaultSetpoint),
       heaterOutput(0.0),
       heaterDuty(0),
-      heatingEnabled(false),
+      heatingEnabled(true),
       lightEnabled(false),
       lightBrightness(0),
       fanEnabled(false),

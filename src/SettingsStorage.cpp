@@ -40,17 +40,17 @@ uint32_t calculateChecksum(const StoredSettings &settings) {
 }  // namespace
 
 void SettingsStorage::begin(SystemState &state) {
-  state.heatingEnabled = false;
   const bool loaded = load(state);
   if (!loaded) {
     Serial.println("[SETTINGS] No valid saved settings; using defaults");
   }
 
+  state.heatingEnabled = true;
   state.settingsDirty = !loaded;
   state.settingsSaveRequested = false;
   state.settingsSaveFailed = false;
   logSettings("Active", capture(state));
-  Serial.println("[SETTINGS] Heating=OFF (not persisted)");
+  Serial.println("[SETTINGS] Heating=ON on boot (not persisted)");
   state.markDisplayDirty();
 }
 
