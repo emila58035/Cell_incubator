@@ -8,3 +8,9 @@ tmp/
 # Python bytecode from running the server-side tests
 __pycache__/
 *.pyc
+
+# Firmware secrets - templates are kept next to them as *.example.
+# Written before the firmware networking work starts so that an accidental
+# `git add -A` cannot pick a real credential up.
+secrets.ini
+src/ServerCaCert.h
