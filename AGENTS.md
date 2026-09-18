@@ -99,14 +99,14 @@ git credential fill   # 能取出 GCM 里保的 token，它有 repo + workflow �
 - **每个提交点都必须可编译**。拆完之后，中间提交也要能 `pio run` 通过，不能只验证最后一步。
 - **提交前扫描敏感信息**，命中即停：
   ```powershell
-  # 1) 凭据形态
-  git diff --cached | Select-String -Pattern 'BEGIN .*PRIVATE KEY|ghp_|github_pat_|AKIA|password\s*='
-  # 2) 路径白名单判定（比把 IP 抄进命令更可靠）
-  git diff --cached --name-only | Select-String -NotMatch '^(HANDOFF\.md$|docs/)'
+  # 1) 凭据形态——只扫代码与配置，**不要把 AGENTS.md / HANDOFF.md 扫进去**
+  git diff --cached -- src platformio.ini .gitignore .gitattributes | Select-String -Pattern 'BEGIN .*PRIVATE KEY|ghp_[A-Za-z0-9]{16}|github_pat_|AKIA[0-9A-Z]{16}|password\s*=\s*\S'
+  # 2) 路径白名单判定
+  git diff --cached --name-only | Select-String -NotMatch '^(HANDOFF\.md$|docs/|AGENTS\.md$)'
   ```
   规则：**服务器 IP / 域名 / Nginx 路径只允许出现在 `HANDOFF.md` 与 `docs/`**。
-  第二条命令的含义是：只要待提交集里出现了白名单**以外**的文件，就人工核对这些文件里有没有情报。
-  本文件故意**不写具体 IP**，避免自己成为泄露源。
+  第二条的含义：待提交集里出现白名单**以外**的文件时，人工核对这些文件里有没有情报。
+  ❗ 两条命令都不要对 `AGENTS.md` 本身跑：本文件包抄了这些正则字面量，会**自匹配产生误报**（本文件上一版就踩到了）。
 - **提交消息风格**：与历史保持一致 —— 英文、祈使句、无句号、50 字符内（例：`Replace AHT20 with SHT30 for temperature and humidity`）。
   需要解释时加正文段落，说明"为什么"而不是"改了哪几行"。
 - **不同会话/harness 的改动不要混进同一个提交**，并在正文里注明来源。
