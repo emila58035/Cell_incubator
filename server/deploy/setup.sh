@@ -77,7 +77,8 @@ if [ ! -x "$APP_DIR/venv/bin/python" ]; then
 else
   echo "reusing existing venv"
 fi
-"$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check --upgrade pip
+"$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check --upgrade pip \
+  || echo "pip self-upgrade skipped (not required, continuing)"
 if ! "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check fastapi uvicorn; then
   echo "PyPI not reachable directly; retrying with the Tsinghua mirror"
   "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check \
@@ -139,7 +140,11 @@ cat "$HEALTH" 2>/dev/null || die "no answer on 127.0.0.1:8000 - see: journalctl 
 echo
 
 log "contract smoke test"
-if "$APP_DIR/venv/bin/python" "$APP_DIR/tests/test_api_smoke.py"; then
+# Run as the service account, not as root: that way the test also proves the
+# incubator user can read the app directory and the virtualenv.
+SMOKE_RUNNER="runuser -u incubator --"
+command -v runuser >/dev/null 2>&1 || SMOKE_RUNNER="sudo -u incubator --"
+if $SMOKE_RUNNER "$APP_DIR/venv/bin/python" "$APP_DIR/tests/test_api_smoke.py"; then
   echo "smoke test passed"
 else
   SMOKE_FAILED=1
