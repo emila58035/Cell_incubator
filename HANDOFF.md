@@ -26,7 +26,7 @@
 **最重要的三句话**：
 
 1. **不要再用域名申请证书**——`*.lxc-away.site` 未备案被全网拦截，HTTP-01 / DNS-01 签出的证书在备案解封前对浏览器和 ESP32 都无意义，重试只会白撞 Let's Encrypt 频率限制。改走 **IP 直连**（§6.1）。
-2. **两批改动均已按主题提交并推送**（R2 完成，详见 §4.1.1）：① `d27eb45` 加热开关解耦 ② `b24c4c1` AHT20→SHT30 迁移。`HeaterController.cpp` 中混装的 `SetSampleTime` 改名行已拆进批次二，**两个提交各自实测 `pio run` SUCCESS**。待实机验证的只剩 **PID 参数未随 SHT30 复核**这一项。
+2. **两批改动均已按主题提交并推送**（R2 完成，详见 §4.1.1）：① `533191d` 加热开关解耦 ② `e7e143a` AHT20→SHT30 迁移。`HeaterController.cpp` 中混装的 `SetSampleTime` 改名行已拆进批次二，**两个提交各自实测 `pio run` SUCCESS**。待实机验证的只剩 **PID 参数未随 SHT30 复核**这一项。
 3. **联网并发模型尚未裁决**（§3.4）——`HTTPClient` 是同步阻塞 API，与 §8 红线「不得阻塞主循环」冲突，实测会拉长阀门脉冲、漏算 PID 积分。**编码前必须定**。
 
 ---
@@ -67,9 +67,11 @@ ESP32-S3 自带 Wi-Fi
 GitHub：      https://github.com/emila58035/Cell_incubator.git  (origin)
               可见性：**private**（R2 于 2026-09-18 由 public 转为私有；
               转私有前实测 forks=0 / watchers=0 / stars=0，无外部公开副本）
-分支：        master（当前，HEAD=04a35d2，已与 origin/master 同步）
+分支：        master（当前，与 origin/master 同步）
+              ⚠️ 本仓库已于 R4 改写历史，所有提交哈希都变了——**不要在文档里写死 HEAD 哈希**，
+              要看当前值请跑 `git log -1`；历史改写记录见 §4.6，新提交链见 §4.4 表格
               backup-master 已在 R2 删除——它是 master 的祖先、无独有提交、
-              且早已随 master 推到远端，属纯冗余。复原：`git branch backup-master 9bb9432`
+              且早已随 master 推到远端，属纯冗余。复原：`git branch backup-master b392206`
 工具链：      PlatformIO / VSCode（pio 不在 PATH，但可用完整路径调用：
               C:\Users\Emila_58035\.platformio\penv\Scripts\platformio.exe run
               —— R1 已验证可正常构建，2026-09-18 实测 [SUCCESS]）
@@ -248,7 +250,7 @@ telemetryClient.update(now, systemState);
 **主功能已完成**，`master` 上最后一次提交：
 
 ```text
-97eb763  2026-09-14 17:52:16 +0800  Initial commit: Cell incubator firmware
+a7eaf17  2026-09-14 17:52:16 +0800  Initial commit: Cell incubator firmware
 ```
 
 源码布局（已核实）：
@@ -274,11 +276,14 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 #### 4.1.1 ⚠️ 工作树全量变更（R1 实测 `git status`，修正 §4.2 的「3 个文件」说法）
 
-上方布局反映的是**工作树**状态；相对 `master`(97eb763) 的完整差异如下，分属**两批独立工作**：
+上方布局反映的是**工作树**状态；相对 `master`(a7eaf17) 的完整差异如下，分属**两批独立工作**：
 
 > **🆕 R2 更新（2026-09-18）：下面这份 `git status` 清单已是历史快照，两批改动都已提交。**
-> 提交链（均已推送）：`6046de4` 停止跟踪 tmp/ → `d27eb45` 批次一 → `b24c4c1` 批次二 → `04a35d2` 新增 `.gitattributes`
-> → `06a3bdd` `docs/REMOTE_MONITORING.md` → `12c39b0` `HANDOFF.md`。
+> **⚠️ R4（2026-09-18）：本仓库已用 `git filter-repo` 改写历史，所有提交哈希都变了**（旧哈希仅存于备份）。
+> 本文档中出现的全部哈希已按 `.git/filter-repo/commit-map` 重映射为**改写后的新值**，可直接 `git log` 对证；
+> 若你手上的 clone 是 R4 之前做的，必须重新 clone（详见 §4.6）。
+> 提交链（R2/R3，均已推送）：停止跟踪 tmp/（此提交在 R4 中因变空而被丢弃）→ `533191d` 批次一
+> → `e7e143a` 批次二 → `53948ea` `.gitattributes` → `f8d6a4f` `docs/REMOTE_MONITORING.md` → `7762b82` `HANDOFF.md`。
 > **R3：两份文档已入库**（前提是仓库已转 private），工作树现在**完全干净**，无任何未跟踪文件。
 
 ```text
@@ -287,7 +292,7 @@ platformio.ini             env: adafruit_feather_esp32s3
  M src/HeaterController.h
  M src/InputManager.cpp
 
-【批次二：AHT20 → SHT30 迁移】 使用者本人进行中（R2 已提交为 `b24c4c1`，含下面的改名行）
+【批次二：AHT20 → SHT30 迁移】 使用者本人进行中（R2 已提交为 `e7e143a`，含下面的改名行）
  D src/AHT20Sensor.cpp
  D src/AHT20Sensor.h
 ?? src/SHT30Sensor.cpp           ← 未跟踪，尚未 git add
@@ -304,15 +309,15 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 **接手注意**：
 - ~~批次二**未完成且未经构建验证**~~ → **R2 实测：`pio run` SUCCESS**（RAM 12.1% / 39548 B，Flash 33.1% / 477781 B）。
-  另将中间提交 `d27eb45` 单独检出到临时 worktree 构建，同样 SUCCESS，证明按主题拆分未破坏可编译性。
+  另将中间提交 `533191d` 单独检出到临时 worktree 构建，同样 SUCCESS，证明按主题拆分未破坏可编译性。
   「未完成」仍然成立：缺的是**实机验证**与下面的 **PID 复核**，不是编译。
 - ~~`HeaterController.cpp` 混装两批改动 → 提交时用 `git add -p` 拆开~~ → **R2 已拆分完成**：
-  `SetSampleTime` 的常量改名行进 `b24c4c1`，加热策略改动进 `d27eb45`（该提交 diff 已确认不含 `SampleIntervalMs`）。
+  `SetSampleTime` 的常量改名行进 `e7e143a`，加热策略改动进 `533191d`（该提交 diff 已确认不含 `SampleIntervalMs`）。
 - SHT30 精度（典型 ±0.2 ℃）优于 AHT20（±0.3 ℃），对控温是有利变更；但 `Config.h` 的 PID 参数
   （保守 Kp=10/Ki=0.1、激进 Kp=20、切换带 3 ℃）未随之复核，迁移完成后建议重新整定。
 - `robtillaart/SHT85` 库同时支持 SHT30/SHT31/SHT85，类名与 `Config.h` 中 `ShtAddress=0x44` 需与实物 ADDR 引脚电平一致。
 
-### 4.2 ⚠️ 加热开关解耦改动（R2：已提交为 `d27eb45`）
+### 4.2 ⚠️ 加热开关解耦改动（R2：已提交为 `533191d`）
 
 **🆕 R2 状态**：本节的改动**已提交并推送**，工作树已不再承载它。以下内容保留作为改动语义的说明。
 本节只讲**批次一：加热开关解耦**（`HeaterController.cpp/.h`、`InputManager.cpp`）；
@@ -352,10 +357,10 @@ platformio.ini             env: adafruit_feather_esp32s3
 接手建议（R2 更新）：
 1. 归属与编译状态已确认（见上），无需再问；仍待办：实机烧录验证。
 2. ~~提交时机：等 SHT30 迁移编译通过后用 git add -p 拆两个 commit~~ → **R2 已完成**：
-   已拆为 `d27eb45`（加热解耦，实际消息 "Keep heating switch under user control during sensor faults"）
-   与 `b24c4c1`（SHT30 迁移，含 SetSampleTime 改名行）。
+   已拆为 `533191d`（加热解耦，实际消息 "Keep heating switch under user control during sensor faults"）
+   与 `e7e143a`（SHT30 迁移，含 SetSampleTime 改名行）。
 3. ~~不要擅自 git checkout -- 丢弃在途改动~~ → R2 后已无未提交的代码改动。
-   ~~未跟踪文档只有一份副本、切勿 `git clean -fdx`~~ → **R3：`HANDOFF.md` 与 `docs/` 已提交并推送（`12c39b0`/`06a3bdd`），
+   ~~未跟踪文档只有一份副本、切勿 `git clean -fdx`~~ → **R3：`HANDOFF.md` 与 `docs/` 已提交并推送（`7762b82`/`f8d6a4f`），
    现在有远端副本，`git clean -fdx` 不再会丢失它们**。
 4. 新增待办：SHT30 的 PID 参数复核（见 §4.1.1、§4.4 末尾）。
 ```
@@ -393,18 +398,18 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 | 提交 | 内容 | 验证 |
 |---|---|---|
-| `6046de4` | 停止跟踪 `tmp/`（4 张 `sch1*.png` 约 1.6 MB） | `git ls-files tmp` 为空；`.gitignore:6:tmp/` 规则此前被跟踪状态压制，现已生效 |
-| `d27eb45` | 批次一 加热开关解耦 | **单独检出到临时 worktree 后 `pio run` SUCCESS** |
-| `b24c4c1` | 批次二 AHT20→SHT30 迁移 | `pio run` SUCCESS（RAM 12.1%，Flash 33.1%） |
-| `04a35d2` | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制声明） | 29 个文本文件全部 `i/lf w/lf`；`git add --renormalize .` 产生**空 diff**，证明对象库本来就是纯 LF，无需改写历史 |
-| `06a3bdd` | 新增 `docs/REMOTE_MONITORING.md`（740 行） | 入库前复确认仓库为 private；全文扫描无凭据（`htpasswd` 只是 nginx 里的**路径**，非密码值） |
-| `12c39b0` | 新增 `HANDOFF.md`（815 行，含本节） | 同上；两文件均以 `i/lf w/lf` 入库，`.gitignore` 不拦截 |
+| ~~`6046de4`~~ | 停止跟踪 `tmp/`（4 张 `sch1*.png` 约 1.6 MB） | 当时校验：`git ls-files tmp` 为空。**该提交已在 R4 历史改写中被丢弃**——它只删 tmp/ 内容，移除 tmp 后成了空提交（见 §4.6） |
+| `533191d` | 批次一 加热开关解耦 | **单独检出到临时 worktree 后 `pio run` SUCCESS** |
+| `e7e143a` | 批次二 AHT20→SHT30 迁移 | `pio run` SUCCESS（RAM 12.1%，Flash 33.1%） |
+| `53948ea` | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制声明） | 29 个文本文件全部 `i/lf w/lf`；`git add --renormalize .` 产生**空 diff**，证明对象库本来就是纯 LF，无需改写历史 |
+| `f8d6a4f` | 新增 `docs/REMOTE_MONITORING.md`（740 行） | 入库前复确认仓库为 private；全文扫描无凭据（`htpasswd` 只是 nginx 里的**路径**，非密码值） |
+| `7762b82` | 新增 `HANDOFF.md`（815 行，含本节） | 同上；两文件均以 `i/lf w/lf` 入库，`.gitignore` 不拦截 |
 
 其他：
 
-- **本地分支 `backup-master` 已删除**（`git branch -d`，git 自行校验已合入 master）。复原：`git branch backup-master 9bb9432`。
+- **本地分支 `backup-master` 已删除**（`git branch -d`，git 自行校验已合入 master）。复原：`git branch backup-master b392206`。
 - **仓库由 public 转为 private**（转私有前实测 `forks_count=0 / subscribers=0 / stargazers=0`，无外部公开副本）。匿名访问 `api.github.com` 现返回 404，已复核。
-- **`tmp/pdfs/sch1*.png` 仍在历史中**（自 `2d63ad5` 起）。取消跟踪不会从历史移除 blob，`.git` 仍约 1.7 MB。若原理图不希望保留可恢复记录，需 `git filter-repo` + 强推（代价：所有克隆需重新 clone）。
+- ~~**`tmp/pdfs/sch1*.png` 仍在历史中**……需 `git filter-repo` + 强推~~ → **R4 已完成**：原理图与所有 `tmp/` 内容已从**全部历史提交**中移除，`.git` 从 1.74 MB 降到 **0.11 MB**。命令、校验方法、备份位置与残留风险见 §4.6。
 - **代理问题（重要环境差异）**：本机 `github.com:443` 直连**超时**，但 `api.github.com:443` 可直连；`127.0.0.1:7890` 有代理进程在监听，但系统 `ProxyEnable=0`、git 也没配 `http.proxy`，所以 `git push` 会直接失败。本轮用一次性参数绕过（**未写入任何配置**）：
 
   ```powershell
@@ -417,7 +422,7 @@ platformio.ini             env: adafruit_feather_esp32s3
 - **遗留的真实代码问题**：`Config.h` 的 PID 参数（保守 Kp=10/Ki=0.1、激进 Kp=20、切换带 3 ℃）是围绕 AHT20 定的，**未随 SHT30 复核**。
   两传感器的精度与响应曲线不同（本文§4.1.1 记为 SHT30 典型 ±0.2 ℃ 优于 AHT20 ±0.3 ℃），且 I2C 采样节奏、
   故障时的 `temperatureValid` 跳变行为也已改变，需重新整定（具体方法见 §4.5）。
-  服务器 IP、域名、Nginx 布局等情报自 R3 起**已进入版本历史**（`06a3bdd`/`12c39b0`）。
+  服务器 IP、域名、Nginx 布局等情报自 R3 起**已进入版本历史**（`f8d6a4f`/`7762b82`）。
   它们安全的唯一前提是仓库保持 **private**：
   **任何情况下不要把这个仓库改回 public、不要邀请外部协作者、不要把 clone 镜像到其他公开位置**；
   否则需先改写历史抹除这两个文件才能恢复公开。
@@ -443,6 +448,46 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 注：细胞培养箱对过冲比恒温精度更敏感（过冲会烫死细胞），整定时宁可保守、不要追求快速到达。
 
+### 4.6 🆕 R4 历史改写：从版本库彻底移除 `tmp/` 原理图（2026-09-18）
+
+**背景**：`tmp/pdfs/sch1*.png`（4 张原理图，共 1.6 MB）自根提交 `696d2fe` 就进了仓库，并在仓库为 **public** 期间公开了 4 天。
+R2 的取消跟踪（`git rm --cached`）只影响后续快照，**历史 blob 仍在**，所以单独做一次改写。
+
+**执行前备份（已验证可用，务必保留）**：
+
+```text
+D:\PlatformIO\Cell\_backups\Cell_incubator-20260918-2110-mirror.git   （mirror clone）
+D:\PlatformIO\Cell\_backups\Cell_incubator-20260918-2110-all.bundle   （git bundle --all，1644.7 KB）
+校验：git bundle verify  →  "records a complete history" / "is okay"
+恢复：git clone <mirror 目录>  或  git clone <.bundle 文件>
+```
+
+**命令**：
+
+```powershell
+pip install git-filter-repo            # 本机原本没有，需通过代理安装
+git filter-repo --path tmp/ --invert-paths --force
+```
+
+**四项改写后校验（缺一不可）**：
+
+| 校验 | 方法 | 结果 |
+|---|---|---|
+| 内容零丢失 | 新旧 HEAD 的 `ls-tree -r` 排除 tmp/ 后比对 | **0 差异**（逐文件 blob SHA 全一致） |
+| 提交数 | `rev-list --count` | 25 → **24**；少的正是变空的 tmp/ 取消跟踪提交，消息差异 = 1 |
+| 目标达成 | `git rev-list --objects --all \| Select-String '\.png$'` | 空；`.git` 1.74 MB → **0.11 MB** |
+| 工作树 | `git status` | clean（filter-repo 不动工作区文件；磁盘上的 `tmp/` 仍然完好） |
+
+**几个容易掉坑的行为，记录在此**：
+
+1. `filter-repo` 会**主动删除 `origin` remote**（日志有 NOTICE），需 `git remote add origin <url>` + `git fetch` 重建。
+2. 它**不是 git 内置命令**，依赖外部 `git-filter-repo` 可执行文件，需确保在 PATH 上。
+3. 改写后**必须强推**，用 `git push --force-with-lease origin master`（而不是 `--force`，后者会直接覆盖别人的推送）。
+4. **所有其他 clone 作废**，必须重新 clone。本项目只有本机一处工作副本，影响可控。
+5. **改写历史 ≠ 撤回公开**。仓库曾为 public，旧提交在改写前可被任何看到 SHA 的人拉取；而且 GitHub 服务端在一时间内**仍可通过旧 commit SHA 直接访问**，Support 也可恢复。真正清除只能联系 GitHub Support。
+   —— 原理图属低敏感内容，本次改写的真实收益是**仓库体积与卫生**，不应当成“消除了泄露”。
+6. 旧→新哈希映射在 `.git/filter-repo/commit-map`（删除 `.git/filter-repo/` 前请先确认本文档哈希已全部重映射完成）。
+
 ---
 
 ## 5. 中断点与阻塞分析（核心内容）
@@ -453,7 +498,7 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 | 时间 | 事件 |
 |---|---|
-| 2026-09-14 17:52 | 固件首次提交 `97eb763` |
+| 2026-09-14 17:52 | 固件首次提交 `a7eaf17` |
 | 2026-09-15 16:57 | Codex 主会话开始，逐步指导服务器部署（12 轮交互） |
 | 2026-09-15 傍晚 | 完成目录创建与 HTTP 站点；开始申请 HTTPS 证书 |
 | 2026-09-15 | HTTP-01 失败：LE 解析到 `43.174.224.202`（DNSPod 拦截页）。排查 DNS，建议等待 TTL 后用 `--dry-run` 复测 |
@@ -463,7 +508,8 @@ platformio.ini             env: adafruit_feather_esp32s3
 | 2026-09-17 15:56 | 工作树出现 3 个未提交的加热控制改动（见 §4.2，来源未确认） |
 | 2026-09-16 之后 | 服务器端**无任何新进展**；证书仍未签发 |
 | 2026-09-18 20:55 | **R2 版本库整备**：tmp/ 取消跟踪、两批改动按主题提交、`.gitattributes` 统一 LF、删除 `backup-master`、**仓库转 private**（全部见 §4.4）。服务器端**仍无进展** |
-| 2026-09-18 21:05 | **R3**：两份文档提交并推送（`06a3bdd` / `12c39b0`），工作树首次完全干净；因 R3 而立刻过时的 5 处陈述同步修正 |
+| 2026-09-18 21:05 | **R3**：两份文档提交并推送（`f8d6a4f` / `7762b82`），工作树首次完全干净；因 R3 而立刻过时的 5 处陈述同步修正 |
+| 2026-09-18 21:15 | **R4**：`git filter-repo` 从全部历史移除 `tmp/` 原理图；25→24 提交，`.git` 1.74→0.11 MB；全文哈希重映射并强推（见 §4.6）。服务器端**仍无进展** |
 
 用户当时的假设是「DNS 解析错误由 VPN 导致，关掉 VPN 重试即可」。
 **下面证明这个假设不成立**——这是接手方最需要知道的一点。
@@ -818,7 +864,7 @@ sudo certbot certificates
 | 远程监控详细设计（R1 已对齐本文档） | `docs/REMOTE_MONITORING.md` |
 
 > 注：`tmp/` 已在 `.gitignore` 中，适合放置临时材料。
-> **R3 更新（2026-09-18）**：`HANDOFF.md` 与 `docs/REMOTE_MONITORING.md` 已提交入库（`12c39b0` / `06a3bdd`），
+> **R3 更新（2026-09-18）**：`HANDOFF.md` 与 `docs/REMOTE_MONITORING.md` 已提交入库（`7762b82` / `f8d6a4f`），
 > 不再只有一份本地副本。它们含服务器 IP、域名与 Nginx 布局，**能入库的唯一前提是仓库为 private**；
 > 若将来需要转回公开，必须先改写历史抹除这两个文件（见 §4.4）。
-> 旧版本文档中“刻意保持未跟踪”的说法已作废；历史提交 `12c39b0` 的 diff 仍保留当时的文字，属正常现象。
+> 旧版本文档中“刻意保持未跟踪”的说法已作废；历史提交 `7762b82` 的 diff 仍保留当时的文字，属正常现象。
