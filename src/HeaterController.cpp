@@ -25,14 +25,27 @@ void HeaterController::begin(SystemState &state) {
 }
 
 void HeaterController::update(SystemState &state) {
-  if (!state.temperatureValid) {
-    stop(state, true);
+  // The heating switch is controlled solely by user input.
+  if (!state.heatingEnabled) {
+    sensorFault_ = false;
+    stop(state);
     return;
   }
 
-  if (!state.heatingEnabled) {
-    stop(state, false);
+  // Switch is ON but no usable temperature: pause heating, keep switch ON.
+  if (!state.temperatureValid) {
+    if (!sensorFault_) {
+      sensorFault_ = true;
+      Serial.println(
+          "[HEATER] Sensor fault: heating paused, switch stays ON");
+    }
+    stop(state);
     return;
+  }
+
+  if (sensorFault_) {
+    sensorFault_ = false;
+    Serial.println("[HEATER] Sensor recovered: resuming control");
   }
 
   input_ = state.temperature;
@@ -60,7 +73,7 @@ void HeaterController::update(SystemState &state) {
   publishOutput(state, duty);
 }
 
-void HeaterController::stop(SystemState &state, bool disableRequest) {
+void HeaterController::stop(SystemState &state) {
   if (automatic_) {
     pid_.SetMode(MANUAL);
     automatic_ = false;
@@ -68,12 +81,6 @@ void HeaterController::stop(SystemState &state, bool disableRequest) {
 
   output_ = 0.0;
   writeHeaterDuty(0);
-
-  if (disableRequest && state.heatingEnabled) {
-    state.heatingEnabled = false;
-    Serial.println("[HEATER] Disabled: temperature is invalid");
-  }
-
   publishOutput(state, 0);
 }
 

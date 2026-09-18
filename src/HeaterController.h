@@ -18,9 +18,10 @@ class HeaterController {
   double setpoint_ = 0.0;
   PID pid_;
   bool automatic_ = false;
+  bool sensorFault_ = false;
   uint32_t lastDuty_ = 0;
 
-  void stop(SystemState &state, bool disableRequest);
+  void stop(SystemState &state);
   void writeHeaterDuty(uint32_t duty);
   void publishOutput(SystemState &state, uint32_t duty);
 };

@@ -107,13 +107,9 @@ void InputManager::update(uint32_t now, SystemState &state) {
     if (state.settingsItemSelected) {
       switch (state.settingsItem) {
         case SettingsItem::SetTemperature:
-          if (!state.temperatureValid && !state.heatingEnabled) {
-            Serial.println("[INPUT] Heating rejected: temperature is invalid");
-          } else {
-            state.heatingEnabled = !state.heatingEnabled;
-            Serial.printf("[INPUT] Heating=%s\n",
-                          state.heatingEnabled ? "ON" : "OFF");
-          }
+          state.heatingEnabled = !state.heatingEnabled;
+          Serial.printf("[INPUT] Heating=%s\n",
+                        state.heatingEnabled ? "ON" : "OFF");
           break;
         case SettingsItem::Light:
           if (state.lightEnabled) {
