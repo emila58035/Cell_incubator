@@ -4,10 +4,13 @@
 > 本文档由 DSH 于 **2026-09-18 18:35 (Asia/Shanghai)** 汇总生成，所有事实均经过实际核实，核实命令与原始输出附在对应位置。
 > 前序工作主要在 Codex（VSCode 扩展）中完成，会话语料位于 `C:\Users\Emila_58035\.codex\sessions\`。
 >
-> **修订 R1 · 2026-09-18（Pi harness 会话）**：① 更正 §4.2 的改动归属、文件清单与编译状态（原文误判为来源不明且未验证）；
-> ② §2.1 补 `platformio.exe` 完整路径；③ 新增 §4.1.1 记录工作树全量变更；④ 依据使用者「手机 4G 跳未备案页」的反馈
-> 与本机 Host 头拦截实测，新增 §5.5 并**重写 §6**（原 DNS-01 路线在备案前无意义，改推 IP 直连）；
-> ⑤ 新增 §3.3.1 载荷 Schema 缺口、§3.4 并发模型冲突。原始核实内容与出处均予保留。
+> **文档约定**（三条，读正文前先确认）：
+> 1. 本文只陈述**当前事实**。修订历史、已作废结论、历史快照一律放 `docs/ARCHIVE.md`，正文不留批注和删除线。
+> 2. 正文**不写死 commit 哈希**（2026-09-18 改写过历史，当时全文哈希一次性全部失效）；哈希只出现在
+>    §4.4 / §4.6 这两张当次记录表里。要当前值请现跑 `git log -1`。
+> 3. 文中「未完成 / 未验证」的结论必须当次实测复核，不要沿用。
+>
+> **最后实测复核：2026-09-18 22:00** —— `git status` 干净、`pio run` SUCCESS、仓库 private。
 
 ---
 
@@ -20,13 +23,14 @@
 | 服务器端部署 | **约 40%**，卡在 HTTPS 证书签发 |
 | 监控网页 / FastAPI / SQLite | **尚未创建** |
 | 当前硬阻塞 | 域名 `*.lxc-away.site` **未完成 ICP 备案**，被腾讯云在网页层**全网拦截**（使用者手机 4G 实测确认，§5.5.1） |
-| 🆕 关键转机 | **实测：拦截只匹配 Host 头中的域名，用 IP `175.24.182.190` 直连返回 200**（§5.5.2）→ 存在无需备案的可用路径 |
+| 关键转机 | **实测：拦截只匹配 Host 头中的域名，用 IP `175.24.182.190` 直连返回 200**（§5.5.2）→ 存在无需备案的可用路径 |
 | 推荐下一步 | 双线并行：**IP 直连 + 自签 CA 立即打通**（§6.1），同时**启动 ICP 备案**（§6.2；域名在 DNSPod、服务器在腾讯云、`.site` 已获工信部批复，前置条件全满足） |
 
 **最重要的三句话**：
 
 1. **不要再用域名申请证书**——`*.lxc-away.site` 未备案被全网拦截，HTTP-01 / DNS-01 签出的证书在备案解封前对浏览器和 ESP32 都无意义，重试只会白撞 Let's Encrypt 频率限制。改走 **IP 直连**（§6.1）。
-2. **两批改动均已按主题提交并推送**（R2 完成，详见 §4.1.1）：① `533191d` 加热开关解耦 ② `e7e143a` AHT20→SHT30 迁移。`HeaterController.cpp` 中混装的 `SetSampleTime` 改名行已拆进批次二，**两个提交各自实测 `pio run` SUCCESS**。待实机验证的只剩 **PID 参数未随 SHT30 复核**这一项。
+2. **两批改动（加热开关解耦 / AHT20→SHT30 换型）已按主题分别提交并推送，两个提交各自实测编译通过**（提交标识见 §4.4）。
+   剩下的不是编译问题，而是**实机验证**与 **SHT30 的 PID 复核**（§4.5）。待实机验证的只剩 **PID 参数未随 SHT30 复核**这一项。
 3. **联网并发模型尚未裁决**（§3.4）——`HTTPClient` 是同步阻塞 API，与 §8 红线「不得阻塞主循环」冲突，实测会拉长阀门脉冲、漏算 PID 积分。**编码前必须定**。
 
 ---
@@ -65,16 +69,15 @@ ESP32-S3 自带 Wi-Fi
 ```text
 工作区：      D:\PlatformIO\Cell\Cell_incubator
 GitHub：      https://github.com/emila58035/Cell_incubator.git  (origin)
-              可见性：**private**（R2 于 2026-09-18 由 public 转为私有；
-              转私有前实测 forks=0 / watchers=0 / stars=0，无外部公开副本）
-分支：        master（当前，与 origin/master 同步）
-              ⚠️ 本仓库已于 R4 改写历史，所有提交哈希都变了——**不要在文档里写死 HEAD 哈希**，
-              要看当前值请跑 `git log -1`；历史改写记录见 §4.6，新提交链见 §4.4 表格
-              backup-master 已在 R2 删除——它是 master 的祖先、无独有提交、
-              且早已随 master 推到远端，属纯冗余。复原：`git branch backup-master b392206`
+              可见性：**private**（2026-09-18 由 public 转私有；转前实测 forks/watchers/stars 均为 0，
+              无外部公开副本）
+分支与副本：  只有 master 一条分支，已与 origin/master 同步；除主目录外没有其他 worktree
+              （曾用过的备份分支已删除，记录在 §4.4）
+哈希：        本仓库 2026-09-18 改写过历史 —— **不要在任何文档或对话里引用旧哈希**，
+              当前值一律现跑 `git log -1`
 工具链：      PlatformIO / VSCode（pio 不在 PATH，但可用完整路径调用：
               C:\Users\Emila_58035\.platformio\penv\Scripts\platformio.exe run
-              —— R1 已验证可正常构建，2026-09-18 实测 [SUCCESS]）
+              2026-09-18 实测 [SUCCESS]）
 Python：      D:\anaconda 可用
 Node.js：     v24.16.0（D:\Program Files\nodejs）
 ```
@@ -200,7 +203,7 @@ Content-Type: application/json
 
 数据库表：`devices`、`telemetry`、`alerts`。
 
-#### 3.3.1 ⚠️ 载荷 Schema 待定项（R1 新增，编码前须裁决）
+#### 3.3.1 ⚠️ 载荷 Schema 待定项（编码前须裁决）
 
 对照 `src/SystemState.h` 实际字段，上述 JSON 示例存在 4 处缺口：
 
@@ -213,7 +216,7 @@ Content-Type: application/json
 
 可选补充：`rssi`、`free_heap`（远程排查内存泄漏）、`wifi_connected`。
 
-### 3.4 ⚠️ 并发模型待裁决（R1 新增，编码前必须决定）
+### 3.4 ⚠️ 并发模型待裁决（编码前必须决定）
 
 §3.2 要求 `loop()` 中非阻塞调用：
 
@@ -247,10 +250,11 @@ telemetryClient.update(now, systemState);
 
 ### 4.1 固件侧
 
-**主功能已完成**，`master` 上最后一次提交：
+**主功能已完成**。固件功能落地于 2026-09-14 的 `Initial commit: Cell incubator firmware`；
+此后只有版本库整备与文档提交。**当前 HEAD 请现查**（本文按约定不记录哈希）：
 
-```text
-a7eaf17  2026-09-14 17:52:16 +0800  Initial commit: Cell incubator firmware
+```powershell
+git log -1 --format='%h %ad %s' --date=iso
 ```
 
 源码布局（已核实）：
@@ -274,73 +278,24 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 **联网模块尚未创建**——`src/` 下没有 `WiFiManager`、`TelemetryClient`、`NetworkConfig` 等文件。
 
-#### 4.1.1 ⚠️ 工作树全量变更（R1 实测 `git status`，修正 §4.2 的「3 个文件」说法）
+#### 4.1.1 当前工作树状态
 
-上方布局反映的是**工作树**状态；相对 `master`(a7eaf17) 的完整差异如下，分属**两批独立工作**：
+工作树**干净**：`git status --short` 无输出，无未跟踪文件；所有源码与文档改动均已提交并推送。
 
-> **🆕 R2 更新（2026-09-18）：下面这份 `git status` 清单已是历史快照，两批改动都已提交。**
-> **⚠️ R4（2026-09-18）：本仓库已用 `git filter-repo` 改写历史，所有提交哈希都变了**（旧哈希仅存于备份）。
-> 本文档中出现的全部哈希已按 `.git/filter-repo/commit-map` 重映射为**改写后的新值**，可直接 `git log` 对证；
-> 若你手上的 clone 是 R4 之前做的，必须重新 clone（详见 §4.6）。
-> 提交链（R2/R3，均已推送）：停止跟踪 tmp/（此提交在 R4 中因变空而被丢弃）→ `533191d` 批次一
-> → `e7e143a` 批次二 → `53948ea` `.gitattributes` → `f8d6a4f` `docs/REMOTE_MONITORING.md` → `7762b82` `HANDOFF.md`。
-> **R3：两份文档已入库**（前提是仓库已转 private），工作树现在**完全干净**，无任何未跟踪文件。
+尚未闭合的只有两项，且都**不是编译问题**：
 
-```text
-【批次一：加热开关解耦】 Pi harness 会话完成，已编译通过，待实机验证（详见 §4.2）
- M src/HeaterController.cpp      ← 注意：本文件同时含批次二的一行改名，提交须拆分
- M src/HeaterController.h
- M src/InputManager.cpp
+- **实机烧录验证**：加热开关解耦（§4.2）与 AHT20→SHT30 换型（§4.1）都还没上机跑过。
+- **SHT30 的 PID 参数复核**：`Config.h` 的增益是围绕 AHT20 定的，方法见 §4.5。
 
-【批次二：AHT20 → SHT30 迁移】 使用者本人进行中（R2 已提交为 `e7e143a`，含下面的改名行）
- D src/AHT20Sensor.cpp
- D src/AHT20Sensor.h
-?? src/SHT30Sensor.cpp           ← 未跟踪，尚未 git add
-?? src/SHT30Sensor.h
- M platformio.ini                lib_deps: dvarrel/AHT20@^1.0.2 → robtillaart/SHT85@^0.6.3
- M src/Config.h                  Aht* 常量 → Sht*（ShtAddress=0x44，SDA=1/SCL=2 不变）
- M src/main.cpp                  #include 与 climateSensor 类型改为 SHT30Sensor
- M src/HeaterController.cpp      SetSampleTime(AhtSampleIntervalMs → ShtSampleIntervalMs)
+换型当时的 `git status` 全量快照、以及「批次二未经构建验证」等已作废结论，见 `docs/ARCHIVE.md` §2、§3。
 
-【文档，均未跟踪】
-?? HANDOFF.md
-?? docs/                         docs/REMOTE_MONITORING.md（远程监控详细设计，R1 已对齐本文档）
-```
+### 4.2 加热开关与传感器故障解耦（已实现）
 
-**接手注意**：
-- ~~批次二**未完成且未经构建验证**~~ → **R2 实测：`pio run` SUCCESS**（RAM 12.1% / 39548 B，Flash 33.1% / 477781 B）。
-  另将中间提交 `533191d` 单独检出到临时 worktree 构建，同样 SUCCESS，证明按主题拆分未破坏可编译性。
-  「未完成」仍然成立：缺的是**实机验证**与下面的 **PID 复核**，不是编译。
-- ~~`HeaterController.cpp` 混装两批改动 → 提交时用 `git add -p` 拆开~~ → **R2 已拆分完成**：
-  `SetSampleTime` 的常量改名行进 `e7e143a`，加热策略改动进 `533191d`（该提交 diff 已确认不含 `SampleIntervalMs`）。
-- SHT30 精度（典型 ±0.2 ℃）优于 AHT20（±0.3 ℃），对控温是有利变更；但 `Config.h` 的 PID 参数
-  （保守 Kp=10/Ki=0.1、激进 Kp=20、切换带 3 ℃）未随之复核，迁移完成后建议重新整定。
-- `robtillaart/SHT85` 库同时支持 SHT30/SHT31/SHT85，类名与 `Config.h` 中 `ShtAddress=0x44` 需与实物 ADDR 引脚电平一致。
+涉及 `HeaterController.cpp/.h`、`InputManager.cpp`。需求由使用者明确提出（原文见 `docs/ARCHIVE.md` §3），
+设计意图是**开关状态完全由用户输入决定，系统不再替用户自动关闭加热**；传感器故障只暂停加热输出，
+恢复后自动继续。这与「联网不得影响本地控制」的取向一致。
 
-### 4.2 ⚠️ 加热开关解耦改动（R2：已提交为 `533191d`）
-
-**🆕 R2 状态**：本节的改动**已提交并推送**，工作树已不再承载它。以下内容保留作为改动语义的说明。
-本节只讲**批次一：加热开关解耦**（`HeaterController.cpp/.h`、`InputManager.cpp`）；
-全量差异（含批次二 SHT30 迁移与文档）见 §4.1.1，版本库整备汇总见 §4.4。
-
-> **✅ R1 更正（归属已确认）**：这 3 个文件的改动**由 Pi harness 会话在使用者明确要求下完成**，
-> 并非来源不明的本地/IDE 修改。需求原文：① 开关关 → 不加热；② 开关开 + 传感器正常 → 加热，
-> 传感器故障 → 停止加热**但开关保持 ON**；③ 开关仅由用户输入控制。改动语义与下表描述完全一致。
->
-> **并且已编译验证通过**（原文档称「未经过编译验证」，实为当时未找到 pio 的路径问题，见 §2.1）：
->
-> ```text
-> platformio.exe run → [SUCCESS] Took 6.11 seconds
-> RAM:   12.1%  (39524 / 327680 bytes)
-> Flash: 33.1%  (477045 / 1441792 bytes)
-> ```
->
-> **仍未做**：实机烧录验证。
->
-> 文件修改时间：`HeaterController.h` / `InputManager.cpp` = 2026-09-17 15:56:53；
-> `HeaterController.cpp` = 2026-09-18 18:40:50（因使用者的 SHT30 迁移又改了一行，见 §4.1.1）。
-
-改动语义（加热开关与传感器故障解耦）：
+改动语义：
 
 | 文件 | 改动前 | 改动后 |
 |---|---|---|
@@ -349,21 +304,12 @@ platformio.ini             env: adafruit_feather_esp32s3
 | `HeaterController.h` | — | 新增成员 `bool sensorFault_ = false;` |
 | `InputManager`（SetTemperature 分支） | 温度无效且加热关闭时**拒绝**开启加热，打印 `[INPUT] Heating rejected: temperature is invalid` | **无条件**切换 `heatingEnabled` |
 
-设计意图（**R1：已由使用者确认，非推测**）：**开关状态完全由用户输入决定，系统不再替用户自动关闭加热**；
-传感器故障只暂停加热输出，恢复后自动继续。这与「联网不得影响本地控制」的取向一致。
-**编译已通过**（见上方 R1 更正），**实机验证未做**。
+状态：**已提交、编译已验证；实机验证未做**。提交标识见 §4.4 表格。
 
-```text
-接手建议（R2 更新）：
-1. 归属与编译状态已确认（见上），无需再问；仍待办：实机烧录验证。
-2. ~~提交时机：等 SHT30 迁移编译通过后用 git add -p 拆两个 commit~~ → **R2 已完成**：
-   已拆为 `533191d`（加热解耦，实际消息 "Keep heating switch under user control during sensor faults"）
-   与 `e7e143a`（SHT30 迁移，含 SetSampleTime 改名行）。
-3. ~~不要擅自 git checkout -- 丢弃在途改动~~ → R2 后已无未提交的代码改动。
-   ~~未跟踪文档只有一份副本、切勿 `git clean -fdx`~~ → **R3：`HANDOFF.md` 与 `docs/` 已提交并推送（`7762b82`/`f8d6a4f`），
-   现在有远端副本，`git clean -fdx` 不再会丢失它们**。
-4. 新增待办：SHT30 的 PID 参数复核（见 §4.1.1、§4.4 末尾）。
-```
+**⚠️ 本次改动引入的新耦合（实机时必须盯）**：传感器故障由「自动关掉开关」变成「暂停输出、开关保持 ON」，
+因此一段偶发的 I2C 读失败会让控制器**静默停在 0% 输出，而屏幕仍显示「加热 ON」**。
+上机时需统计连续读失败频率，确认 `[HEATER] Sensor fault` / `[HEATER] Sensor recovered` 不会反复出现；
+若会，说明 SHT30 的读可靠性不如 AHT20，应在驱动层加重试而不是在控制层忽略。
 
 ### 4.3 服务器侧（约 40%）
 
@@ -392,13 +338,13 @@ platformio.ini             env: adafruit_feather_esp32s3
 - ❌ 只读监控网页
 - ❌ 固件联网代码与联调
 
-### 4.4 🆕 R2 版本库整备（2026-09-18，接手方必读）
+### 4.4 版本库整备记录（2026-09-18）
 
-本节把 R2 一次性做完的版本库操作汇总成可验证的清单。
+本表与 §4.6 是全文**唯一**允许写 commit 哈希的地方（当次记录性质）。
 
 | 提交 | 内容 | 验证 |
 |---|---|---|
-| ~~`6046de4`~~ | 停止跟踪 `tmp/`（4 张 `sch1*.png` 约 1.6 MB） | 当时校验：`git ls-files tmp` 为空。**该提交已在 R4 历史改写中被丢弃**——它只删 tmp/ 内容，移除 tmp 后成了空提交（见 §4.6） |
+| —（已不存在的哈希） | 停止跟踪 `tmp/`（4 张 `sch1*.png` 约 1.6 MB） | 当时校验 `git ls-files tmp` 为空。该提交**在历史改写中被丢弃**：它只删 `tmp/` 内容，移除 `tmp/` 后成了空提交（见 §4.6） |
 | `533191d` | 批次一 加热开关解耦 | **单独检出到临时 worktree 后 `pio run` SUCCESS** |
 | `e7e143a` | 批次二 AHT20→SHT30 迁移 | `pio run` SUCCESS（RAM 12.1%，Flash 33.1%） |
 | `53948ea` | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制声明） | 29 个文本文件全部 `i/lf w/lf`；`git add --renormalize .` 产生**空 diff**，证明对象库本来就是纯 LF，无需改写历史 |
@@ -411,7 +357,7 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 - **本地分支 `backup-master` 已删除**（`git branch -d`，git 自行校验已合入 master）。复原：`git branch backup-master b392206`。
 - **仓库由 public 转为 private**（转私有前实测 `forks_count=0 / subscribers=0 / stargazers=0`，无外部公开副本）。匿名访问 `api.github.com` 现返回 404，已复核。
-- ~~**`tmp/pdfs/sch1*.png` 仍在历史中**……需 `git filter-repo` + 强推~~ → **R4 已完成**：原理图与所有 `tmp/` 内容已从**全部历史提交**中移除，`.git` 从 1.74 MB 降到 **0.11 MB**。命令、校验方法、备份位置与残留风险见 §4.6。
+- **`tmp/` 连同 4 张原理图已从全部历史移除**：`.git` 1.74 MB → 0.11 MB。命令、校验、备份位置与残留风险见 §4.6。
 - **代理问题（重要环境差异）**：本机 `github.com:443` 直连**超时**，但 `api.github.com:443` 可直连；`127.0.0.1:7890` 有代理进程在监听，但系统 `ProxyEnable=0`、git 也没配 `http.proxy`，所以 `git push` 会直接失败。本轮用一次性参数绕过（**未写入任何配置**）：
 
   ```powershell
@@ -422,14 +368,14 @@ platformio.ini             env: adafruit_feather_esp32s3
   另：Windows PowerShell 5.1 调 GitHub API 需先 `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'`，否则报「基础连接已经关闭」。
 
 - **遗留的真实代码问题**：`Config.h` 的 PID 参数（保守 Kp=10/Ki=0.1、激进 Kp=20、切换带 3 ℃）是围绕 AHT20 定的，**未随 SHT30 复核**。
-  两传感器的精度与响应曲线不同（本文§4.1.1 记为 SHT30 典型 ±0.2 ℃ 优于 AHT20 ±0.3 ℃），且 I2C 采样节奏、
+  两传感器的精度与响应曲线不同（SHT30 典型 ±0.2 ℃ 优于 AHT20 ±0.3 ℃），且 I2C 采样节奏、
   故障时的 `temperatureValid` 跳变行为也已改变，需重新整定（具体方法见 §4.5）。
-  服务器 IP、域名、Nginx 布局等情报自 R3 起**已进入版本历史**（`f8d6a4f`/`7762b82`）。
+  服务器 IP、域名、Nginx 布局等情报**已进入版本历史**。
   它们安全的唯一前提是仓库保持 **private**：
   **任何情况下不要把这个仓库改回 public、不要邀请外部协作者、不要把 clone 镜像到其他公开位置**；
   否则需先改写历史抹除这两个文件才能恢复公开。
 
-### 4.5 🆕 SHT30 PID 参数复核怎么做
+### 4.5 SHT30 PID 参数复核怎么做
 
 背暂：本项目加热用的是**带滞环的双增益 PID**（`Config.h`：保守 Kp=10/Ki=0.1、激进 Kp=20，切换带 3 ℃），
 `PID` 库以 `Config::ShtSampleIntervalMs`（1 s）为采样周期。换传感器后需要重新确认三件事：
@@ -437,7 +383,7 @@ platformio.ini             env: adafruit_feather_esp32s3
 1. **自洽性**：采样周期未变（仍 1 s），`SetSampleTime` 已随之改名，这一项无风险。
 2. **滞后变化**：SHT30 与 AHT20 的封装、响应时间（τ）、自热效应不同，会让回路纯滞后变化，
    直接决定 Kp 上限。现象上表现为：加热过冲变大、或输出振荡于设定值附近。
-3. **失效行为变化**：R2 已把「传感器故障」从“自动关掉开关”改成“暂停输出、保持 ON”（§4.2），
+3. **失效行为变化**：当前实现把「传感器故障」处理成“暂停输出、开关保持 ON”（§4.2），
    所以 I2C 偶发读失败现在**不会**再默默关掉加热，而是会反复进入暂停/恢复。需确认 `SHT30Sensor` 的
    CRC/重试失败频率低于可接受阈值，否则会出现长时间无输出。
 
@@ -450,10 +396,10 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 注：细胞培养箱对过冲比恒温精度更敏感（过冲会烫死细胞），整定时宁可保守、不要追求快速到达。
 
-### 4.6 🆕 R4 历史改写：从版本库彻底移除 `tmp/` 原理图（2026-09-18）
+### 4.6 历史改写记录：从版本库彻底移除 `tmp/` 原理图（2026-09-18）
 
 **背景**：`tmp/pdfs/sch1*.png`（4 张原理图，共 1.6 MB）自根提交 `696d2fe` 就进了仓库，并在仓库为 **public** 期间公开了 4 天。
-R2 的取消跟踪（`git rm --cached`）只影响后续快照，**历史 blob 仍在**，所以单独做一次改写。
+早先的 `git rm --cached` 只影响后续快照，**历史 blob 仍在**，所以单独做一次改写。
 
 **执行前备份（已验证可用，务必保留）**：
 
@@ -526,6 +472,7 @@ git filter-repo --path tmp/ --invert-paths --force
 | 2026-09-18 21:05 | **R3**：两份文档提交并推送（`f8d6a4f` / `7762b82`），工作树首次完全干净；因 R3 而立刻过时的 5 处陈述同步修正 |
 | 2026-09-18 21:15 | **R4**：`git filter-repo` 从全部历史移除 `tmp/` 原理图；25→24 提交，`.git` 1.74→0.11 MB；全文哈希重映射并强推（见 §4.6）。服务器端**仍无进展** |
 | 2026-09-18 21:35 | **R5**：新增根目录 `AGENTS.md`（结构维护规则 + 禁令清单），约束后续 AI 会话不乱改结构（见 §4.4 末尾两行） |
+| 2026-09-18 22:00 | **R6 文档重构**：考古层与作废结论迁入 `docs/ARCHIVE.md`；正文只留当前事实、不再写死哈希；§4.2 补入 SHT30 静默停输出的耦合警告 |
 
 用户当时的假设是「DNS 解析错误由 VPN 导致，关掉 VPN 重试即可」。
 **下面证明这个假设不成立**——这是接手方最需要知道的一点。
@@ -599,7 +546,7 @@ curl -i --max-time 10 -H 'Host: incubator.lxc-away.site' http://175.24.182.190/
 
 **结论：该证书不能用于 `incubator.lxc-away.site`**，浏览器与 ESP32 都会报域名不匹配。必须重新签发。
 
-### 5.5 🆕 R1 实测：备案状态确认 + 拦截维度判定（2026-09-18）
+### 5.5 实测：备案状态确认 + 拦截维度判定（2026-09-18）
 
 #### 5.5.1 备案状态已确认：**未备案，属全网拦截**
 
@@ -638,7 +585,7 @@ $req.Host='incubator.lxc-away.site'   # 换成 '175.24.182.190' 做对比
 ($req.GetResponse()).StatusCode
 ```
 
-#### 5.5.3 域名与备案可行性核查（R1）
+#### 5.5.3 域名与备案可行性核查
 
 | 项 | 结果 | 来源 |
 |---|---|---|
@@ -655,7 +602,7 @@ $req.Host='incubator.lxc-away.site'   # 换成 '175.24.182.190' 做对比
 
 ## 6. 推荐后续方案
 
-### 6.1 🆕 方案 A（R1 推荐，立即可用）：IP 直连 + 自签 CA，绕开域名拦截
+### 6.1 方案 A（推荐，立即可用）：IP 直连 + 自签 CA，绕开域名拦截
 
 > **⏸ 原「方案 A：DNS-01 签发域名证书」已降级为暂缓路线**（移至 §6.1.9）——§5.5.1 确认属全网未备案拦截，
 > 域名证书签出来也无法被浏览器/ESP32 使用。该流程仅在 §6.2 备案完成后才有意义。
@@ -672,7 +619,7 @@ ESP32 ──HTTPS──▶ https://175.24.182.190/api/v1/telemetry
 
 | 选项 | 说明 | 评价 |
 |---|---|---|
-| **A1 自签 CA（R1 推荐）** | 自建根 CA（10 年）+ 服务器叶子证书；ESP32 用 `WiFiClientSecure::setCACert()` 内嵌该 CA | **零外部依赖、零续期风险、当天可通**。代价：浏览器首次需导入 CA 或接受警告（内部使用可接受） |
+| **A1 自签 CA（推荐）** | 自建根 CA（10 年）+ 服务器叶子证书；ESP32 用 `WiFiClientSecure::setCACert()` 内嵌该 CA | **零外部依赖、零续期风险、当天可通**。代价：浏览器首次需导入 CA 或接受警告（内部使用可接受） |
 | A2 Let's Encrypt **IP 证书** | LE 自 **2026-01-15** 起 GA 支持 IP 地址证书；强制 `shortlived` profile → **仅 6 天（160 小时）有效期**；certbot **≥5.4** 才支持 `--webroot --ip-address`，且**不能自动装入 nginx**，须手写 `ssl_certificate` 并配 `--deploy-hook` reload | 公开可信、浏览器无警告。代价：Ubuntu apt 的 certbot 版本远低于 5.4（需 pip/snap 升级）；**6 天续期链条一旦断裂设备立即失联**，对无人值守培养箱偏脆弱 |
 | A3 明文 HTTP | 看板走 `http://175.24.182.190/`（实测 200） | 最快，但 Basic Auth 凭据明文传输，**不建议** |
 
@@ -700,7 +647,7 @@ openssl x509 -req -in server.csr -CA incubator-ca.pem -CAkey incubator-ca.key \
 **⚠️ 因改用 IP 访问而新增的安全要求**（IP 无域名遮蔽、全网扫描即可发现，且本机 80 端口已公开提供 `/fw/` OTA）：
 
 - 设备上报：`Authorization: Bearer <key>`（§3.3 已定），服务端**常量时间比较**
-- 看板：**必须加 Basic Auth**——原文档未规定，R1 补为**强制项**
+- 看板：**必须加 Basic Auth**（原文档未规定，后补为强制项）
 - POST 端点限流（建议 20 req/min/IP）
 - 服务端输入范围校验（`temperature` -40~85、`humidity` 0~100、`heater_pwm` 0~255）
 - Nginx 只暴露 443（+ 既有 80 的 `/fw/`），FastAPI 只监听 `127.0.0.1:8000`
@@ -710,7 +657,7 @@ openssl x509 -req -in server.csr -CA incubator-ca.pem -CAkey incubator-ca.key \
 
 #### 6.1.9 备案完成后的域名证书签发（原方案 A，⏸ 暂缓执行）
 
-> **R1：以下 DNS-01 流程在 §6.2 备案通过、拦截解除前不要执行**——签出来也无法使用，
+> **⚠️ 以下 DNS-01 流程在 §6.2 备案通过、拦截解除前不要执行**——签出来也无法使用，
 > 且会消耗 Let's Encrypt 频率额度。保留此节供备案完成后使用。
 
 不依赖公网 HTTP 访问，**不需要 Nginx 运行、不需要 webroot 目录**，与 80/443 配置无关。
@@ -762,7 +709,7 @@ sudo certbot certificates
 
 §5.5.1 已确认属**全网未备案拦截**，故备案是唯一的根治手段。
 
-> **❌ R1 更正：原文「把 DNS 解析迁移到 Cloudflare（或阿里云 DNS）以绕开拦截」不成立。**
+> **❌ 「把 DNS 解析迁移到 Cloudflare（或阿里云 DNS）以绕开拦截」不成立**（考证见 `docs/ARCHIVE.md` §2）。
 > §5.5.2 实测证明拦截发生在**腾讯云网络边界**，判定依据是到达该 IP 的 `Host` 头 / TLS `SNI`，
 > **与 DNS 由谁托管无关**。把 NS 换成 Cloudflare 后解析结果仍是 `175.24.182.190`，
 > 流量照样经过腾讯云边界并携带同样的 Host 头 → 照样被拦。
@@ -808,7 +755,7 @@ sudo certbot certificates
 
 ### 6.3 证书之后的施工顺序
 
-> R1：走 §6.1 A1 路线时，「证书」= 自签 CA 签发的 IP 叶子证书，**当天即可完成**，无需等待备案。
+> 走 §6.1 A1 路线时，「证书」= 自签 CA 签发的 IP 叶子证书，**当天即可完成**，无需等待备案。
 > 下列顺序不变。
 
 ```text
@@ -826,22 +773,22 @@ sudo certbot certificates
 
 ## 7. 待确认问题（接手方需向使用者确认）
 
-（R1 更新：✅ = 已解决，⬜ = 待确认）
+（✅ = 已解决，⬜ = 待确认）
 
 1. ✅ **§4.2 的加热改动**：已确认为 Pi harness 会话按使用者要求所做，**编译已通过**，实机验证待做。
    提交时机：等 SHT30 迁移完工后拆分为独立 commit（见 §4.2 接手建议）。
 2. ✅ **§5.2 的域名拦截**：使用者手机 4G 实测跳「未备案」页 → **全网拦截**（§5.5.1）。
-   「迁移 DNS 到 Cloudflare」经实测证明**无效**，已从方案中删除（§6.2 R1 更正）。
+   「迁移 DNS 到 Cloudflare」经实测证明**无效**，已从方案中删除（考证见 `docs/ARCHIVE.md` §2）。
 3. ⬜ **是否授权配置 SSH**（`~/.ssh/config` 增加 `Host incubator-server`），让 AI 直接操作服务器？
    当前未配置，所有服务器命令必须由使用者手动执行并回贴输出。
 4. ✅ **手机 4G 访问测试结果**：跳「未备案」页（同 #2）。
 5. ⬜ 监控网页是否需要具备历史曲线图？还是先只做「当前状态」页面？
 6. ⬜ 设备 API 密钥的生成与下发方式（建议首次配网时写入 NVS）。
-7. ⬜ **（R1 新增）并发模型裁决**（§3.4）：接受「Core 0 FreeRTOS 任务 + §3.2 接口不变」，
+7. ⬜ **并发模型裁决**（§3.4）：接受「Core 0 FreeRTOS 任务 + §3.2 接口不变」，
    还是坚持主循环同步 POST？**此项决定固件联网模块的写法，编码前必须定。**
-8. ⬜ **（R1 新增）证书路线**（§6.1）：A1 自签 CA / A2 LE IP 证书 / A3 明文，选哪个？（推荐 A1）
-9. ⬜ **（R1 新增）是否启动 ICP 备案**（§6.2）？需先确认域名实名认证信息与备案主体是否一致。
-10. ⬜ **（R1 新增）载荷 Schema 4 处缺口**（§3.3.1）：CO₂ 单位 / validity 标志 / `heater_on` / `timestamp`。
+8. ⬜ **证书路线**（§6.1）：A1 自签 CA / A2 LE IP 证书 / A3 明文，选哪个？（推荐 A1）
+9. ⬜ **是否启动 ICP 备案**（§6.2）？需先确认域名实名认证信息与备案主体是否一致。
+10. ⬜ **载荷 Schema 4 处缺口**（§3.3.1）：CO₂ 单位 / validity 标志 / `heater_on` / `timestamp`。
 
 ---
 
@@ -878,10 +825,11 @@ sudo certbot certificates
 | DSH 会话存档 | `C:\Users\Emila_58035\.dsh\sessions\--D-PlatformIO-Cell-Cell_incubator--\`（zstd 压缩的 JSONL） |
 | 本交接文档 | `HANDOFF.md`（仓库根目录） |
 | **结构维护规则（所有 AI 会话必读）** | `AGENTS.md`（仓库根目录）—— 文件所有权分级、禁用命令、提交规范、行尾、自证清单 |
-| 远程监控详细设计（R1 已对齐本文档） | `docs/REMOTE_MONITORING.md` |
+| 远程监控详细设计 | `docs/REMOTE_MONITORING.md` |
+| **已作废结论 / 修订历史 / 历史快照** | `docs/ARCHIVE.md`（正文只留当前事实） |
 
-> 注：`tmp/` 已在 `.gitignore` 中，适合放置临时材料。
-> **R3 更新（2026-09-18）**：`HANDOFF.md` 与 `docs/REMOTE_MONITORING.md` 已提交入库（`7762b82` / `f8d6a4f`），
-> 不再只有一份本地副本。它们含服务器 IP、域名与 Nginx 布局，**能入库的唯一前提是仓库为 private**；
-> 若将来需要转回公开，必须先改写历史抹除这两个文件（见 §4.4）。
-> 旧版本文档中“刻意保持未跟踪”的说法已作废；历史提交 `7762b82` 的 diff 仍保留当时的文字，属正常现象。
+> 注：`tmp/` 已在 `.gitignore` 中，适合放置临时材料；**任何二进制都不要入库**。
+> `HANDOFF.md`、`docs/`、`AGENTS.md` 均已纳入版本控制，因此含服务器 IP、域名与 Nginx 布局——
+> **它们安全的唯一前提是仓库保持 private**。不得转回 public、不得邀请外部协作者、
+> 不得把 clone 镜像到公开位置；要恢复公开，必须先改写历史抹除这几个文件（做法见 §4.6）。
+
