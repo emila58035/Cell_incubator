@@ -487,6 +487,19 @@ git filter-repo --path tmp/ --invert-paths --force
 5. **改写历史 ≠ 撤回公开**。仓库曾为 public，旧提交在改写前可被任何看到 SHA 的人拉取；而且 GitHub 服务端在一时间内**仍可通过旧 commit SHA 直接访问**，Support 也可恢复。真正清除只能联系 GitHub Support。
    —— 原理图属低敏感内容，本次改写的真实收益是**仓库体积与卫生**，不应当成“消除了泄露”。
 6. 旧→新哈希映射在 `.git/filter-repo/commit-map`（删除 `.git/filter-repo/` 前请先确认本文档哈希已全部重映射完成）。
+7. **顺序陷阱：改写后先 `git remote add` + `git fetch` 会**把旧历史（连 png）**重新拉回本地对象库**，
+   `.git` 当场涨回 1.69 MB。强推完成后必须补一次清理才能看到收益：
+
+   ```powershell
+   git reflog expire --expire=now --all
+   git gc --prune=now          # 本地 .git：1.69 MB → 0.12 MB
+   git rev-list --objects --all | Select-String '\.png$'   # 应为空
+   git fsck --no-progress                              # 应无 dangling
+   ```
+
+8. **服务端不会立刻变干净**：强推后 GitHub 仍报 `size=1602KB`（与改写前相同），因为旧 commit 尚未被它回收，
+   一时期内**仍可直接按旧 SHA 拉取**。这与上面第 5 条是同一件事：本地已彻底清除，远端要等 GitHub 自己的 GC，
+   或联系 Support。
 
 ---
 
