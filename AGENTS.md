@@ -30,7 +30,7 @@
 1. 不可逆的仓库历史或远端状态：force-push、改写历史（`filter-repo`/BFG/`rebase` 已推送提交）、删远端分支、`git remote remove|set-url`
 2. 仓库身份与暴露范围：可见性、协作者、把私有内容镜像到公开位置
 3. 删除且**无副本**：`git clean`、用 `reset --hard` 覆盖未提交改动、对仓库根或 `.git` 的递归删除
-4. 把凭据/服务器 IP/域名/Nginx 路径写进 `src/` 或提交；提交 `secrets.ini`
+4. 把凭据/服务器 IP/域名/Nginx 路径写进 `src/`，或写到白名单以外的地方（白名单 = `HANDOFF.md` / `docs/` / `server/`，细则见 `docs/CONVENTIONS.md` §3）；提交 `secrets.ini`
 5. 突破安全红线：让联网阻塞主循环、放宽 `HeaterPwmMaximum` 等输出边界、跳过构建验证、动服务器既有服务（`HANDOFF.md` §8）
 
 ## 2. 四条不可协商（都是事故换来的，将来放宽时也别删）

@@ -69,11 +69,15 @@ git diff --cached -- src platformio.ini .gitignore .gitattributes |
   Select-String -Pattern 'BEGIN .*PRIVATE KEY|ghp_[A-Za-z0-9]{16}|github_pat_|AKIA[0-9A-Z]{16}|password\s*=\s*\S'
 
 # 2) 路径白名单 —— 出现白名单以外的文件就人工核对有没有情报
-git diff --cached --name-only | Select-String -NotMatch '^(HANDOFF\.md$|docs/|AGENTS\.md$)'
+git diff --cached --name-only | Select-String -NotMatch '^(HANDOFF\.md$|docs/|AGENTS\.md$|server/)'
 ```
 
-- 规则：**服务器 IP / 域名 / Nginx 路径只允许出现在 `HANDOFF.md` 与 `docs/`**。
+- 规则：**服务器 IP / 域名 / Nginx 路径只允许出现在 `HANDOFF.md`、`docs/`、`server/deploy/` 与 `server/README.md`**
+  （2026-09-18 由使用者裁决扩展；`server/` 是部署代码，天然需要入口 IP 与 Nginx 路径）。
+  `src/` 与固件侧仍然严格禁止出现服务器情报。
 - ❗ **不要对 `AGENTS.md` 本身跑第 1 条**：它抄了这些正则字面量，会自匹配产生误报（已踩过）。
+- ❗ **已知误报**：`server/deploy/setup.sh` 里的 `PASSWORD="$(openssl rand ...)"` 会命中第 1 条的
+  `password\s*=\s*\S`（`Select-String` 默认大小写不敏感）。那是**命令替换**，不是字面凭据，属误报。
 - 不要用"把 IP 写进正则"的写法，否则规则文件自己就成了泄露源。
 
 ---
