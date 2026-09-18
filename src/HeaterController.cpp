@@ -16,7 +16,7 @@ void HeaterController::begin(SystemState &state) {
 
   setpoint_ = state.setpoint;
   pid_.SetOutputLimits(0, Config::HeaterPwmMaximum);
-  pid_.SetSampleTime(Config::AhtSampleIntervalMs);
+  pid_.SetSampleTime(Config::ShtSampleIntervalMs);
   pid_.SetMode(MANUAL);
   publishOutput(state, 0);
 

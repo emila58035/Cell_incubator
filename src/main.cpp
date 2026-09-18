@@ -1,4 +1,4 @@
-#include "AHT20Sensor.h"
+#include "SHT30Sensor.h"
 #include "Config.h"
 #include "DisplayManager.h"
 #include "FanController.h"
@@ -11,7 +11,7 @@
 #include "SystemState.h"
 
 SystemState systemState;
-AHT20Sensor climateSensor;
+SHT30Sensor climateSensor;
 SenseAirS8Sensor co2Sensor;
 InputManager inputManager;
 HeaterController heaterController;

@@ -6,11 +6,12 @@
 namespace Config {
 constexpr uint32_t DebugBaudRate = 115200;
 
-constexpr int AhtSdaPin = 1;
-constexpr int AhtSclPin = 2;
-constexpr uint8_t AhtAddress = 0x38;
-constexpr uint32_t AhtSampleIntervalMs = 1000;
-constexpr uint32_t AhtReconnectIntervalMs = 5000;
+constexpr int ShtSdaPin = 1;
+constexpr int ShtSclPin = 2;
+// SHT30 shares the SHT3x command set; ADDR pin low -> 0x44, high -> 0x45.
+constexpr uint8_t ShtAddress = 0x44;
+constexpr uint32_t ShtSampleIntervalMs = 1000;
+constexpr uint32_t ShtReconnectIntervalMs = 5000;
 
 constexpr int HeaterPwmPin = 39;
 constexpr uint32_t HeaterPwmFrequency = 1000;
