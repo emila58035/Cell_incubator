@@ -404,6 +404,8 @@ platformio.ini             env: adafruit_feather_esp32s3
 | `53948ea` | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制声明） | 29 个文本文件全部 `i/lf w/lf`；`git add --renormalize .` 产生**空 diff**，证明对象库本来就是纯 LF，无需改写历史 |
 | `f8d6a4f` | 新增 `docs/REMOTE_MONITORING.md`（740 行） | 入库前复确认仓库为 private；全文扫描无凭据（`htpasswd` 只是 nginx 里的**路径**，非密码值） |
 | `7762b82` | 新增 `HANDOFF.md`（815 行，含本节） | 同上；两文件均以 `i/lf w/lf` 入库，`.gitignore` 不拦截 |
+| `f091b6e` | **新增 `AGENTS.md`**（187 行，仓库根）——所有 AI 会话的结构维护规则 | 故意不含具体 IP/域名，以免自己成为泄露源；待提交集跑完自带扫描后才发现它命中的是自己写的那条正则 |
+| `38d96d8` | 修正 `AGENTS.md` 的提交前扫描命令 | 原命令对整个暂存区跑，会**自匹配** `AGENTS.md` 里的模式字面量；改为限定路径（`src` `platformio.ini` `.gitignore` `.gitattributes`）+ 文档类文件走路径白名单 |
 
 其他：
 
@@ -523,6 +525,7 @@ git filter-repo --path tmp/ --invert-paths --force
 | 2026-09-18 20:55 | **R2 版本库整备**：tmp/ 取消跟踪、两批改动按主题提交、`.gitattributes` 统一 LF、删除 `backup-master`、**仓库转 private**（全部见 §4.4）。服务器端**仍无进展** |
 | 2026-09-18 21:05 | **R3**：两份文档提交并推送（`f8d6a4f` / `7762b82`），工作树首次完全干净；因 R3 而立刻过时的 5 处陈述同步修正 |
 | 2026-09-18 21:15 | **R4**：`git filter-repo` 从全部历史移除 `tmp/` 原理图；25→24 提交，`.git` 1.74→0.11 MB；全文哈希重映射并强推（见 §4.6）。服务器端**仍无进展** |
+| 2026-09-18 21:35 | **R5**：新增根目录 `AGENTS.md`（结构维护规则 + 禁令清单），约束后续 AI 会话不乱改结构（见 §4.4 末尾两行） |
 
 用户当时的假设是「DNS 解析错误由 VPN 导致，关掉 VPN 重试即可」。
 **下面证明这个假设不成立**——这是接手方最需要知道的一点。
@@ -874,6 +877,7 @@ sudo certbot certificates
 | Codex 原始会话存档 | `C:\Users\Emila_58035\.codex\sessions\2026\09\15\` 与 `2026\09\16\` |
 | DSH 会话存档 | `C:\Users\Emila_58035\.dsh\sessions\--D-PlatformIO-Cell-Cell_incubator--\`（zstd 压缩的 JSONL） |
 | 本交接文档 | `HANDOFF.md`（仓库根目录） |
+| **结构维护规则（所有 AI 会话必读）** | `AGENTS.md`（仓库根目录）—— 文件所有权分级、禁用命令、提交规范、行尾、自证清单 |
 | 远程监控详细设计（R1 已对齐本文档） | `docs/REMOTE_MONITORING.md` |
 
 > 注：`tmp/` 已在 `.gitignore` 中，适合放置临时材料。
