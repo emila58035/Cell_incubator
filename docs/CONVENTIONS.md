@@ -93,6 +93,17 @@ git diff --cached --name-only | Select-String -NotMatch '^(HANDOFF\.md$|docs/|AG
 - 想把工作区文件刷成 LF：`git checkout-index -a -f` **不覆盖已存在文件**（实测无效）；
   正确做法是删除后 `git checkout -- <path>`，或 `git rm --cached -r . && git reset --hard`（**会丢未提交改动，先确认干净**）。
 
+### 4.1 别在 PowerShell 里数行数，也别经管道喂中文脚本
+
+两个 2026-09-18 真实踩到的坑（与上一节同源：PowerShell 5.1 默认按 **GBK** 解码）：
+
+- **数行数/字符数用 Python 或 `read` 工具**。实测同一份 `HANDOFF.md`：真实 **926 行**，
+  `Get-Content` 报 **611**，`Get-Content | Measure-Object -Line`（会跳过空行）报 **503**。
+  用错数字会得出「文件被截断了」这种假结论，白白排查半小时。
+- **含中文的脚本不要经管道交给解释器**（如 `$code | python -`）：脚本源码本身会被编成 `?`，
+  于昰脚本里所有中文字符串比较全变成假，而纯 ASCII 的检查不受影响——这种错"半对半错"，最容易自欺。
+  用 `write` 工具落盘成 `.py` 再执行。
+
 ---
 
 ## 5. C++ 代码风格与分层
