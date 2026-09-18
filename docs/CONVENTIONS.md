@@ -124,9 +124,12 @@ docs/           设计文档（唯一允许的长期文档存放处）
 tmp/            .gitignore 忽略；临时材料、原理图截图、参考 PDF 全放这里；任何二进制都不要入库
 platformio.ini  唯一构建配置，env 只有一个：adafruit_feather_esp32s3
 HANDOFF.md      交接文档（当前事实）  AGENTS.md  结构约束  docs/ARCHIVE.md  已作废结论
+server/         服务器端源码：app.py / schema.sql / static/ / tests/ / deploy/（部署件）
+                见 server/README.md——它是这一层唯一允许的长期文档
 ```
 
-新模块放 `src/`，**不要在根目录建新目录**。
+新模块放 `src/`，**不要在根目录建新目录**；`server/` 是唯一例外（2026-09-18 声明新增，属 🟡，
+理由见 §3 的白名单与 `server/README.md`）。**固件模块仍然只能放 `src/`。**
 
 ## 7. 依赖
 
