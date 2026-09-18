@@ -277,8 +277,9 @@ platformio.ini             env: adafruit_feather_esp32s3
 上方布局反映的是**工作树**状态；相对 `master`(97eb763) 的完整差异如下，分属**两批独立工作**：
 
 > **🆕 R2 更新（2026-09-18）：下面这份 `git status` 清单已是历史快照，两批改动都已提交。**
-> 提交链（均已推送）：`6046de4` 停止跟踪 tmp/ → `d27eb45` 批次一 → `b24c4c1` 批次二 → `04a35d2` 新增 `.gitattributes`。
-> 当前工作树只剩未跟踪的 `HANDOFF.md` 与 `docs/`（刻意保持未跟踪，文档定稿方案待定）。
+> 提交链（均已推送）：`6046de4` 停止跟踪 tmp/ → `d27eb45` 批次一 → `b24c4c1` 批次二 → `04a35d2` 新增 `.gitattributes`
+> → `06a3bdd` `docs/REMOTE_MONITORING.md` → `12c39b0` `HANDOFF.md`。
+> **R3：两份文档已入库**（前提是仓库已转 private），工作树现在**完全干净**，无任何未跟踪文件。
 
 ```text
 【批次一：加热开关解耦】 Pi harness 会话完成，已编译通过，待实机验证（详见 §4.2）
@@ -353,9 +354,9 @@ platformio.ini             env: adafruit_feather_esp32s3
 2. ~~提交时机：等 SHT30 迁移编译通过后用 git add -p 拆两个 commit~~ → **R2 已完成**：
    已拆为 `d27eb45`（加热解耦，实际消息 "Keep heating switch under user control during sensor faults"）
    与 `b24c4c1`（SHT30 迁移，含 SetSampleTime 改名行）。
-3. ~~不要擅自 git checkout -- 丢弃在途改动~~ → R2 后已无未提交的代码改动；
-   **仍不可丢弃的是未跟踪的 `HANDOFF.md` 与 `docs/`**——它们在全仓库只有这一份副本，
-   一次 `git clean -fdx` 就会永久删除（git 里没有任何备份）。
+3. ~~不要擅自 git checkout -- 丢弃在途改动~~ → R2 后已无未提交的代码改动。
+   ~~未跟踪文档只有一份副本、切勿 `git clean -fdx`~~ → **R3：`HANDOFF.md` 与 `docs/` 已提交并推送（`12c39b0`/`06a3bdd`），
+   现在有远端副本，`git clean -fdx` 不再会丢失它们**。
 4. 新增待办：SHT30 的 PID 参数复核（见 §4.1.1、§4.4 末尾）。
 ```
 
@@ -396,6 +397,8 @@ platformio.ini             env: adafruit_feather_esp32s3
 | `d27eb45` | 批次一 加热开关解耦 | **单独检出到临时 worktree 后 `pio run` SUCCESS** |
 | `b24c4c1` | 批次二 AHT20→SHT30 迁移 | `pio run` SUCCESS（RAM 12.1%，Flash 33.1%） |
 | `04a35d2` | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制声明） | 29 个文本文件全部 `i/lf w/lf`；`git add --renormalize .` 产生**空 diff**，证明对象库本来就是纯 LF，无需改写历史 |
+| `06a3bdd` | 新增 `docs/REMOTE_MONITORING.md`（740 行） | 入库前复确认仓库为 private；全文扫描无凭据（`htpasswd` 只是 nginx 里的**路径**，非密码值） |
+| `12c39b0` | 新增 `HANDOFF.md`（815 行，含本节） | 同上；两文件均以 `i/lf w/lf` 入库，`.gitignore` 不拦截 |
 
 其他：
 
@@ -413,7 +416,11 @@ platformio.ini             env: adafruit_feather_esp32s3
 
 - **遗留的真实代码问题**：`Config.h` 的 PID 参数（保守 Kp=10/Ki=0.1、激进 Kp=20、切换带 3 ℃）是围绕 AHT20 定的，**未随 SHT30 复核**。
   两传感器的精度与响应曲线不同（本文§4.1.1 记为 SHT30 典型 ±0.2 ℃ 优于 AHT20 ±0.3 ℃），且 I2C 采样节奏、
-  故障时的 `temperatureValid` 跳变行为也已改变，需重新整定（具体方法见 §4.5）。服务器 IP、域名、Nginx 布局等情报**仅存在于未跟踪的两份文档中**，提交前请先确认仓库仍为 private。
+  故障时的 `temperatureValid` 跳变行为也已改变，需重新整定（具体方法见 §4.5）。
+  服务器 IP、域名、Nginx 布局等情报自 R3 起**已进入版本历史**（`06a3bdd`/`12c39b0`）。
+  它们安全的唯一前提是仓库保持 **private**：
+  **任何情况下不要把这个仓库改回 public、不要邀请外部协作者、不要把 clone 镜像到其他公开位置**；
+  否则需先改写历史抹除这两个文件才能恢复公开。
 
 ### 4.5 🆕 SHT30 PID 参数复核怎么做
 
@@ -456,6 +463,7 @@ platformio.ini             env: adafruit_feather_esp32s3
 | 2026-09-17 15:56 | 工作树出现 3 个未提交的加热控制改动（见 §4.2，来源未确认） |
 | 2026-09-16 之后 | 服务器端**无任何新进展**；证书仍未签发 |
 | 2026-09-18 20:55 | **R2 版本库整备**：tmp/ 取消跟踪、两批改动按主题提交、`.gitattributes` 统一 LF、删除 `backup-master`、**仓库转 private**（全部见 §4.4）。服务器端**仍无进展** |
+| 2026-09-18 21:05 | **R3**：两份文档提交并推送（`06a3bdd` / `12c39b0`），工作树首次完全干净；因 R3 而立刻过时的 5 处陈述同步修正 |
 
 用户当时的假设是「DNS 解析错误由 VPN 导致，关掉 VPN 重试即可」。
 **下面证明这个假设不成立**——这是接手方最需要知道的一点。
@@ -809,7 +817,8 @@ sudo certbot certificates
 | 本交接文档 | `HANDOFF.md`（仓库根目录） |
 | 远程监控详细设计（R1 已对齐本文档） | `docs/REMOTE_MONITORING.md` |
 
-> 注：`tmp/` 已在 `.gitignore` 中，适合放置临时材料。**`HANDOFF.md` 与 `docs/` 自 R2 起刻意保持未跟踪（见 §4.4）**，
-> 目的是避开将服务器 IP、域名、Nginx 布局等情报写入版本历史；仓库已于 2026-09-18 转为 **private**。
-> 因此这两个文件**在全仓库只有一份本地副本，且不在任何提交里**——切勿执行 `git clean -fdx`，
-> 建议先做一份仓库外备份。若今后需要入库，先做脱敏或确认 private 状态未变。
+> 注：`tmp/` 已在 `.gitignore` 中，适合放置临时材料。
+> **R3 更新（2026-09-18）**：`HANDOFF.md` 与 `docs/REMOTE_MONITORING.md` 已提交入库（`12c39b0` / `06a3bdd`），
+> 不再只有一份本地副本。它们含服务器 IP、域名与 Nginx 布局，**能入库的唯一前提是仓库为 private**；
+> 若将来需要转回公开，必须先改写历史抹除这两个文件（见 §4.4）。
+> 旧版本文档中“刻意保持未跟踪”的说法已作废；历史提交 `12c39b0` 的 diff 仍保留当时的文字，属正常现象。
