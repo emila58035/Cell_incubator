@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Line-ending policy for this repository.
+#
+# This file is version-controlled, therefore it OVERRIDES every developer's
+# core.autocrlf / core.eol setting (autocrlf only applies to paths that are
+# not matched by the `text` attribute). No clone configuration required.
+#
+# Goal: the object store AND every working tree use LF.
+# ---------------------------------------------------------------------------
+
+# Auto-detect text files; store as LF, check out as LF.
+* text=auto eol=lf
+
+# --- Source and configuration: force LF even if detection says "binary" ---
+*.c            text eol=lf
+*.h            text eol=lf
+*.cpp          text eol=lf
+*.hpp          text eol=lf
+*.ino          text eol=lf
+*.md           text eol=lf
+*.ini          text eol=lf
+*.json         text eol=lf
+*.csv          text eol=lf
+*.txt          text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.py           text eol=lf
+*.sh           text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+
+# --- Binary: never convert line endings, never produce a text diff ---
+# *.sh stays LF on purpose: a CRLF shell script fails on the Linux server
+# with "bash: $'\r': command not found".
+*.a     binary
+*.o     binary
+*.obj   binary
+*.so    binary
+*.dll   binary
+*.bin   binary
+*.elf   binary
+*.uf2   binary
+*.exe   binary
+*.zip   binary
+*.gz    binary
+*.xz    binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.svg   text eol=lf
+*.pdf   binary
+*.ttf   binary
+*.otf   binary
+*.xls   binary
+*.xlsx  binary
+*.doc   binary
+*.docx  binary
