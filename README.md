@@ -50,5 +50,5 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 
 -   仓库是 **private**（文档含服务器 IP 与 Nginx 布局），不得转公开。
 -   全部 LF / UTF-8 无 BOM，由 `.gitattributes` 强制。
--   `github.com:443` 直连超时，git 网络命令需自带 `-c http.proxy=http://127.0.0.1:7890`（不持久化）。
+-   本机 `github.com:443` 直连超时。遇到网络故障**不要自行配代理**，先向使用者说明现象并问怎么处理。
 -   改完代码跑 `pio run`，没通过不要提交。

@@ -54,13 +54,13 @@
   白名单原则：服务器 IP/域名/Nginx 路径只允许出现在 `docs/` 下的文档中；`src/` 里出现就是错误。
 - 消息：英文、祈使句、无句号、≤50 字符，正文说明"为什么"；未验证项标 `STATUS:`。
 - 不同会话的改动不要混进同一提交。
-- **不要 `git push`**，除非使用者要求（推送要带代理，见 §4）。
+- **不要 `git push`**，除非使用者要求（网络故障的处置见 §4）。
 
 ## 4. 本机环境（照做，别重新排查）
 
 | 事实 | 影响 |
 |---|---|
-| `github.com:443` 直连**超时**，`api.github.com:443` 可直连 | 网络命令**自带** `-c http.proxy=http://127.0.0.1:7890`（使用者要求**不持久化**） |
+| `github.com:443` 直连**超时**，`api.github.com:443` 可直连 | 遇到这类网络故障，**不要自行配代理、不要改 git 配置、不要换 remote 协议**；先把现象和报错原文告知使用者，等其指示 |
 | `pio` 不在 PATH | `C:\Users\Emila_58035\.platformio\penv\Scripts\platformio.exe run` |
 | Windows PowerShell 5.1 | 调 GitHub API 先设 `TLS12`；**别用它的 `Get-Content` 数中文文件的行数/字符数**（按 GBK 解码，数字是错的） |
 | 行尾 | 全 LF / UTF-8 无 BOM，由 `.gitattributes` 强制，它**优先于** `core.autocrlf` |
