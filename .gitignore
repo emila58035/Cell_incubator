@@ -4,3 +4,7 @@
 .vscode/launch.json
 .vscode/ipch
 tmp/
+
+# Python bytecode from running the server-side tests
+__pycache__/
+*.pyc

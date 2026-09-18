@@ -1,0 +1,38 @@
+[Unit]
+Description=Incubator telemetry API (FastAPI + Uvicorn)
+Documentation=file:///opt/incubator/app/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=incubator
+Group=incubator
+WorkingDirectory=/opt/incubator/app
+
+# Defaults live in app.py; set explicitly so `systemctl show` documents them.
+# INCUBATOR_STATIC points at the copy under /opt, not at the deploy bundle.
+Environment=INCUBATOR_DB=/var/lib/incubator/data.db
+Environment=INCUBATOR_DEVICES=/etc/incubator/devices.json
+Environment=INCUBATOR_STATIC=/opt/incubator/app/static
+
+# 127.0.0.1 only. Nginx terminates TLS and enforces Basic Auth; this process
+# must never be reachable from the public interface (REMOTE_MONITORING 5.3).
+ExecStart=/opt/incubator/app/venv/bin/python -m uvicorn app:app \
+    --host 127.0.0.1 --port 8000 --workers 1 --log-level info
+
+Restart=always
+RestartSec=3
+# Default StartLimit* settings are kept on purpose: a crash loop should end in
+# a visible `failed` state instead of spinning forever.
+
+# Hardening. The service only needs to read the app and the token file and to
+# write the SQLite database.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/incubator
+
+[Install]
+WantedBy=multi-user.target
