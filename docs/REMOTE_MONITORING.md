@@ -6,7 +6,8 @@
 > **未备案全网拦截 + IP 直连可绕过**实测结论。
 > 本文档的价值在于补充 HANDOFF 未展开的**实现级细节**：并发模型论证、模块内部设计、载荷构造、
 > Flash/RAM 预算、失效模式、测试与验收标准。
-> 状态：**设计稿，未编码**。
+> 状态：**服务器侧已实现并通过本机契约测试**（`server/`，2026-09-18，见 HANDOFF §4.3）；
+> **固件侧未编码**，并发模型未裁决（§2）。本文中标记「已实现」的部分以 `server/README.md` 为准。
 
 ---
 
@@ -79,8 +80,13 @@ telemetryClient.update(now, systemState);
 ```
 
 但 arduino-esp32 的 `HTTPClient` / `WiFiClient` 是**同步阻塞 API**。Wi-Fi 连接可以靠轮询
-`WiFi.status()` 做到非阻塞，**HTTP 请求本身不行**。最坏情况（connectTimeout + responseTimeout ≈ 3 s）
-会卡住主循环，直接违反 HANDOFF §8 红线。
+`WiFi.status()` 做到非阻塞，**HTTP 请求本身不行**。
+
+> **⚠️ 2026-09-18 实测修正**：本节原文估「最坏（connectTimeout + responseTimeout）≈ 3 s」，
+> **低了一个数量级**。读框架源码得到：TLS 握手超时默认 **120 s**（`WiFiClientSecure.cpp:40`），
+> 而 `HTTPClient::setTimeout()` **根本管不到握手**（它只调 `_client->setTimeout()`，`HTTPClient.cpp:494`），
+> 必须另外调 `setHandshakeTimeout()`。即使显式压到 8 s，单次阻塞上限也是 **~14 s**；
+> 漏写那一句就是 **~125 s**。完整分阶段表与看门狗分析见 HANDOFF §3.4。
 
 ### 2.2 对现有控制逻辑的实测影响
 
@@ -198,7 +204,7 @@ constexpr char      FirmwareVersion[] = "0.1.0";
 ```cpp
 struct TelemetrySnapshot {
   float    temperature, humidity;
-  uint32_t co2;                       // 整数 ppm，见 §6
+  uint32_t co2;                       // 设备单位（S8 寄存器 × Co2ScaleFactor），不换算，见 §6
   bool     temperatureValid, humidityValid, co2Valid;
   float    setpoint;
   bool     heatingEnabled;            // 加热开关（见 §6 缺口 3）
@@ -416,7 +422,8 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS devices (
   device_id   TEXT PRIMARY KEY,
   label       TEXT,
-  api_token   TEXT NOT NULL,        -- 或存 /etc/incubator，不入库
+  -- 注意：api_token 不在本表（2026-09-18 裁决）。Token 存在 /etc/incubator/devices.json，
+  -- 因为数据库是进备份、进查询的那个东西，不该存放凭据。label 则不入 devices.json 的强制项。
   first_seen  INTEGER,
   last_seen   INTEGER,
   fw_version  TEXT
@@ -431,7 +438,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
 
   temperature REAL,   temperature_ok INTEGER,
   humidity    REAL,   humidity_ok    INTEGER,
-  co2         INTEGER, co2_ok        INTEGER,   -- 整数 ppm
+  co2         INTEGER, co2_ok        INTEGER, co2_available INTEGER,   -- 整数 ppm
 
   target_temperature REAL,
   heater_on   INTEGER, heater_pwm INTEGER,
@@ -452,6 +459,9 @@ CREATE TABLE IF NOT EXISTS alerts (
   detail      TEXT
 );
 ```
+
+> **以 `server/schema.sql` 为准**（已实现并测试）。相对上面的草图，实际建表多出三列：
+> `co2_available`、`heap_min`、`heap_int`；另有 `idx_alerts_open` 部分索引用于查未恢复告警。
 
 **数据量测算**（10 s 间隔，单设备）
 
@@ -554,7 +564,7 @@ FastAPI 只监听 `127.0.0.1:8000`；不动宝塔目录；不破坏 `ota.conf` �
 
 | # | 问题 | 现状 | 采纳方案 |
 |---|---|---|---|
-| 1 | **CO₂ 单位不一致** | 示例 `"co2": 5.1` 是百分比 float；固件 `SystemState.co2` 是**整数 ppm**（TFT 按 `ppm` 显示，阀门阈值 25000/40000/48000 = 2.5%/4.0%/4.8%） | 上报**整数 ppm**（`51000`），看板显示时 `/10000` 换算成百分比。无损、与本机显示一致 |
+| 1 | **CO₂ 单位不一致** | 示例 `"co2": 5.1` 是百分比 float；固件 `SystemState.co2` 是 `S8 寄存器原值 × Config::Co2ScaleFactor(=10)`，TFT 又按 `"ppm"` 标签显示（真实物理单位**未确认**） | **上报 `SystemState.co2` 原值，服务器与看板都不换算**（2026-09-18 使用者裁决）。仍实施中抓到的 10 倍偏差风险见 HANDOFF §3.3.1；**不实现 CO₂ 阈值告警**直到单位被硬件确认 |
 | 2 | **缺有效性标志** | 无 `temperatureValid`/`humidityValid`/`co2Valid` | **必须补** `*_ok`。否则看板无法区分「传感器故障」与「读数恰为 0」，HANDOFF §4.2 加热解耦改动的价值在远程端完全体现不出来 |
 | 3 | **缺加热开关状态** | §3.2 已把 `heatingEnabled` 列为数据源，但 §3.3 载荷只有 `heater_pwm` | **必须补** `heater_on`。开关 ON + 传感器故障时 `heater_pwm=0`，与「用户主动关加热」的 0 含义完全不同 |
 | 4 | **`timestamp` 需设备对时** | §3.2 把 NTP 列为「可选」，但载荷含 `timestamp`；不启用 NTP 则无从填写 | 设备只报 **`uptime_s`**，服务器用 `recv_ts` 打权威时间戳。**可不实现 `TimeSync` 模块**，少一个故障点 |
@@ -566,12 +576,14 @@ FastAPI 只监听 `127.0.0.1:8000`；不动宝塔目录；不破坏 `ota.conf` �
 ```
 temperature      → temperature        temperatureValid → temperature_ok
 humidity         → humidity           humidityValid    → humidity_ok
-co2              → co2 (整数 ppm)      co2Valid         → co2_ok
+co2              → co2 (设备单位，不换算)   co2_ok → co2_ok，co2Available → co2_available
 setpoint         → target_temperature
 heatingEnabled   → heater_on          heaterDuty       → heater_pwm
 lightEnabled     → light              lightBrightness  → light_pct
 fanEnabled       → fan                valveOpen        → valve
-(millis()/1000)  → uptime_s           ESP.getFreeHeap()→ free_heap
+(millis()/1000)  → uptime_s           ESP.getFreeHeap()→ heap_free
+                                        ESP.getMinFreeHeap() → heap_min
+                                        heap_caps_get_free_size(INTERNAL|8BIT) → heap_int
 WiFi.RSSI()      → rssi               NetCfg::FirmwareVersion → firmware_version
 ```
 
@@ -648,9 +660,13 @@ IP 无域名遮蔽、全网扫描即可发现，且本机 80 端口已公开提�
 - [ ] `SystemState` 新增网络字段
 - [ ] `WiFiManager`、`TelemetryClient`（Core 0 任务 + 快照 + 明文 POST）
 - [ ] `main.cpp` 接入
-- [ ] `server/` 最小实现：FastAPI + SQLite 三表 + 极简 HTML
+- [x] `server/` 实现：FastAPI + SQLite 三表 + 只读看板（2026-09-18 完成、45 项契约测试本机通过，见 HANDOFF §4.3）
+- [x] 测试：`server/tests/test_api_smoke.py`（标准库 + 真实 uvicorn 子进程，非 in-process）
 - [ ] 笔记本跑服务器，指向局域网地址验证
-- [ ] **Flash / RAM 实测**（在 SHT30 迁移完成后的新基线上）
+- [ ] **Flash / RAM 实测**（联网模块加入后的新基线）。SHT30 迁移后的当前基线已实测：
+      Flash 477,781 B / 1,441,792 B = **33.1%**，RAM 39,548 B / 327,680 B = **12.1%**（2026-09-18，`pio run`）。
+      注：本板有 2 MB PSRAM 且 `CONFIG_SPIRAM_USE_MALLOC 1`，>4 KB 的分配（如 TLS 缓冲）会优先落 PSRAM，
+      所以内部 RAM 压力比本文 §3.9 的估算宽松，**Flash 才是真瓶颈**（app 分区只有 1.41 MB）
 - **验收**：看板出现实时曲线；**拔掉路由器后温度曲线与阀门脉冲时序与拔网前无可测差异**
 
 ### P2 · 上云 + 安全加固
@@ -730,11 +746,13 @@ IP 无域名遮蔽、全网扫描即可发现，且本机 80 端口已公开提�
 
 与 HANDOFF §7 保持一致，实施前需确认：
 
-1. ⬜ **并发模型**（§2）：接受「Core 0 任务 + HANDOFF §3.2 接口不变」，还是坚持主循环同步 POST？**编码前必须定**
-2. ⬜ **证书路线**（HANDOFF §6.1）：A1 自签 CA（推荐）/ A2 LE IP 证书 / A3 明文
-3. ⬜ **是否启动 ICP 备案**（HANDOFF §6.2）：需先确认域名实名认证信息与备案主体一致
-4. ⬜ **载荷 Schema 4 处修正**（§6）：是否全部采纳
-5. ⬜ **SSH 授权**（HANDOFF §7.3）：决定服务器侧命令由谁执行
-6. ⬜ **看板是否需要历史曲线**（HANDOFF §7.5）：还是先只做「当前状态」页
-7. ⬜ **设备 API 密钥下发方式**（HANDOFF §7.6）：`secrets.ini` 编译期注入，还是首次配网写 NVS
-8. ⬜ **SHT30 迁移完成时机**：P1 的 Flash/RAM 基线实测需在其完成后进行
+1. ⬜ **并发模型**（§2）：接受「Core 0 任务 + HANDOFF §3.2 接口不变」，还是坚持主循环同步 POST？**编码前必须定**；
+   2026-09-18 使用者决定固件侧押后，此项仍悬空
+2. ✅ **证书路线已定**：A1 自签 CA，**只签 IP 叶子证书**（`SAN=IP:175.24.182.190`），不用域名
+3. ✅ **ICP 备案降级为可选**：IP 直连已绕开拦截，备案只为消除浏览器证书警告
+4. ✅ **载荷 Schema**：4 处修正全采纳，另加 `co2_available` 与 `heap_free`/`heap_min`/`heap_int`（已实现）
+5. ✅ **SSH 授权**：继续**手动模式**，文件走宝塔面板（`0.0.0.0:28095`）上传 zip
+6. ✅ **看板历史曲线已实现**（手写 canvas、零外部依赖，1h/6h/24h/7d）
+7. ⬜ **设备 API 密钥的固件侧下发方式**：`secrets.ini` 编译期注入，还是首次配网写 NVS
+   （服务器侧已定：`openssl rand -hex 32` → `/etc/incubator/devices.json`，不入库、不打印）
+8. ✅ SHT30 迁移早已完成，基线已重测（见 §3.9 与 §9 P1）
