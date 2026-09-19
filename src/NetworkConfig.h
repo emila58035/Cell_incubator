@@ -2,11 +2,16 @@
 
 #include <Arduino.h>
 
-// Credentials arrive as -D flags from secrets.ini, which is gitignored (see
-// secrets.example.ini). platformio.ini carries empty placeholders, so a clone
-// without secrets still compiles. Empty values are treated as "not
-// configured": the networking modules then stay quiet instead of retrying
-// forever against nothing.
+// Credentials arrive as macros from src/Secrets.h, a gitignored header with a
+// committed template next to it. The same mechanism as src/ServerCaCert.h, and
+// for the same reason: a header survives values that the -D flag path cannot
+// (see the note at the end of platformio.ini).
+//
+// The #ifndef fallbacks keep a clone without that header buildable; empty
+// values are treated as "not configured".
+#if __has_include("Secrets.h")
+#include "Secrets.h"
+#endif
 #ifndef SECRET_WIFI_SSID
 #define SECRET_WIFI_SSID ""
 #endif

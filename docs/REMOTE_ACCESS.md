@@ -444,30 +444,35 @@ Core 1（loopTask，控制环，永不让出）        Core 0（netTask，新增
 1. **快照字段全部 ≤4 字节且 4 字节对齐**。`SystemState` 里的 `double setpoint` / `double heaterOutput` 是两次 32 位访问，跨核读会**撕裂**（撕裂的 `setpoint` 会被服务器 400 拒掉整条样本），所以发布时把 `setpoint` 窄化为 `float`，`heaterOutput` **不上报**（契约里没有对应字段）。8 个布尔量打包进一个 `uint8_t`。
 2. **临界区两端共用一个 `portMUX_TYPE`**。只锁读端不构成互斥：`portENTER_CRITICAL` 的跨核互斥来自 spinlock，只有写端（Core 1 的 `publish()`）也拿同一把锁才成立。临界区只包住赋值，**绝不跨越任何阻塞调用**。
 
-### 6.4 配置注入（2026-09-19 实测）
+### 6.4 配置注入（2026-09-19 实测；**已从 -D flags 改为 gitignored 头文件**）
 
-`secrets.ini`（gitignore，模板 `secrets.example.ini` 入库）：
+凭据放 `src/Secrets.h`（gitignore，模板 `src/Secrets.h.example` 入库），由 `NetworkConfig.h` 用 `__has_include` 引入：
 
-```ini
-[secrets]
-build_flags =
-	-DSECRET_WIFI_SSID=\"...\"
-	-DSECRET_WIFI_PASS=\"...\"
-	-DSECRET_SERVER_URL=\"https://<server-address>/api/v1/telemetry\"
-	-DSECRET_DEVICE_ID=\"incubator-001\"
-	-DSECRET_DEVICE_TOKEN=\"<从服务器 /etc/incubator/devices.json 取>\"
+```cpp
+#define SECRET_WIFI_SSID "your-2.4GHz-ssid"
+#define SECRET_WIFI_PASS "your-wifi-password"
+#define SECRET_SERVER_URL "https://<server-address>/api/v1/telemetry"
+#define SECRET_DEVICE_ID "incubator-001"
+#define SECRET_DEVICE_TOKEN "<64 位 hex，从 /etc/incubator/devices.json 取>"
 ```
 
-`platformio.ini` 侧五条约束，每一条都是实测踩出来的：
+**为什么不再用 `-D` flags（三次隔离实验，全部实测）**：
 
-1. **`extra_configs` 必须写在 `[platformio]` 段。** PlatformIO 读的是 `self.get("platformio", "extra_configs", [])`；写在 `[env:...]` 段**不报错、被静默忽略**（`pio project config` 里能看到该选项，但值仍是主文件的兜底值）。
-2. 用 `${PROJECT_DIR}/secrets.ini`，不要用裸文件名：`extra_configs` 走 `glob.glob()`，相对路径依赖进程 cwd。
-3. 用 `${secrets.build_flags}` 插值把凭据拼进 env 的 `build_flags`。**不要**让 extra_configs 直接覆盖 env 的 `build_flags` —— INI 语义是整项替换，会连带丢掉 TFT 面板参数（屏仍能编译，但驱动是错的）。
-4. 兜底：`platformio.ini` 自带一个 `[secrets]` 段（全空串）。`glob` 找不到文件时返回空列表而**不报错**，所以克隆后没有 `secrets.ini` 也能编译；空串在固件侧等于“未配置”，只打印一次并停止上报，不进入重试循环。
-5. 验证方式：把标记值写进 `secrets.ini`，编译后直接在 `firmware.elf` 里搜该字符串（比看构建日志可靠）。
+| 试过的写法 | 结果 |
+|---|---|
+| `-DSECRET_WIFI_SSID=\"has space\"` | ❌ 被 PlatformIO 的 flag 切分器按空格切开 → GCC 收到未闭合字符串；切出来的 `space\` 还被当成输入文件（`linker input file not found`） |
+| 整条 flag 用单引号包起来 `'\"has space\"'` | ❌ 一样被切开（INI 层的引号改不动切分器） |
+| 用 C 八进制转义 `\"has\040space\"` | ❌ 反斜杠在**编译器看到之前就被吃掉**，ELF 里存成 `has040space`（`\073`/`\043` 同理） |
+| 值里含 `#` 或 `;` | ❌ INI 用 `inline_comment_prefixes=("#", ";")`，值会**从该字符起被截断** |
 
-CA 证书是多行 PEM，不适合走 `-D` → 单独放 `src/ServerCaCert.h`（gitignore，模板 `.example` 入库），由 `NetworkConfig.h` 用 `__has_include` 引入；文件不存在时回落到空串，同样只在日志里说一次。
-⚠️ 该头文件是在 `namespace NetworkConfig` **内部**被 include 的，所以**模板里不能再套一层命名空间**（否则报 `NetworkConfig::NetworkConfig::ServerCaCertPem`）。
+结论：`-D` 这条路**承载不了含空格的 SSID**，而 WiFi 名带空格是常见情况。头文件没有这些失败模式（与 `src/ServerCaCert.h` 同一机制），而且**不需要任何转义**。`secrets.ini` / `secrets.example.ini` 已退役（`.gitignore` 里仍忽略前者，以防旧文件残留）。
+
+`NetworkConfig.h` 侧：`#if __has_include("Secrets.h")` → include；随后一串 `#ifndef SECRET_*` 空串兜底，所以克隆后没有该头文件也能编译；空串在固件侧等于“未配置”（只打印一次、不进重试循环）。
+⚠️ 该头文件与 `src/ServerCaCert.h` 一样是在 `namespace NetworkConfig` **内部**被 include 的，**模板里不要再套一层命名空间**。
+
+**验证方式（不依赖构建日志）**：把值编译进镜像后直接在 `firmware.elf` 里搜字符串。实测含空格的测试值走头文件注入 → ELF 里是 `has space`（正确）、`has040space` 缺席，而走 `-D` 时相反。这也是判定“值到底进了没进”的可靠手法。
+
+CA 证书是多行 PEM，同样走头文件：`src/ServerCaCert.h`（gitignore，模板 `.example` 入库）。
 固件只需**CA 公钥证书**，服务器上的 `incubator-ca.key` **绝不进固件**。
 
 #### 取凭据（全部只读）
@@ -667,18 +672,22 @@ pio device monitor -p COM22                        # 看日志与 payload
 
 已由硬件证实（除上面 5 条）：
 
-- ✅ 凭据注入两条路径：把标记值写进 `secrets.ini` 与 `src/ServerCaCert.h` 后 `firmware.elf` 里能搜到全部 7 个标记串；删掉文件后仍能 SUCCESS 且标记消失
+- ✅ 凭据注入：`src/Secrets.h` + `src/ServerCaCert.h` 两个 gitignored 头文件，含空格的值也正确进入镜像（ELF 实测）
+- ✅ **端到端首次打通（2026-09-19）**：sim 构建 + 真凭据，烧录后串口为
+  `[WIFI] Connected, RSSI -38 dBm` → **`[SIM] report -> HTTP 204` × 11**（WiFi + TLS + Bearer + device_id 匹配 + 载荷 schema 全通）
+- ✅ **重试策略现场跑了一次**（非计划内：中途真掉了一次链路）：`HTTP -1` → `[WIFI] Link lost` → `retrying in 5761 ms` → `11513 ms`，**递增退避、不加速重试** ✓
 - ✅ 栈落位：静态分配，`.bss` → 内部 DRAM，并由 `esp_ptr_internal() = 1` 打印验证
 - ✅ **模拟数据源**（§6.9）：`pio run -e sim` 在裸板上注入 8 阶段合成数据，payload 经服务器模型离线校验 **0 invalid**；并由此修掉 `nan` 载荷缺陷
+- ✅ 顺带量到一个真实数字：跑 TLS 期间 `heap_min` 掉到 **68,036 B**，距 40 KB 水印还有 ~28 KB 余量；不作报告用的 `heap_int` 在链路上时约 120 KB
 
 仍待完成（**2026-09-19 决定：全部留到真凭据端到端时一并做**，理由见下）：
 
-- ⬜ **失败路径实测**：`SECRET_SERVER_URL` 指向不可达地址（如 `https://192.0.2.10/...`）→ 量 3 s 连接超时与“失败不加速重试”；关掉 AP → 看服务器是否写 `offline` 告警；故意用错 token → 401 分支
+- ⬜ **失败路径实测**：`SECRET_SERVER_URL` 指向不可达地址（如 `https://192.0.2.10/...`）→ 量 3 s 连接超时；关掉 AP → 看服务器是否写 `offline` 告警；故意用错 token → 401 分支
   ⚠️ **当前标注：三处超时值（3 / 8 / 3 s）与握手超时上限只有源码审查证据，未经测量**。这个 bug 类是静默的 —— `setHandshakeTimeout()` 参数单位是**秒**，写成 `8000` 不报错、只把 8 s 变成 ~2.2 小时，且无看门狗捕获
-  （它不属于安全项：方案 1 下隔离性由分核保证，超时值错成 2.2 小时也不会让阀门脉冲变长；它影响的是“故障时设备看上去死多久”、重试包络与失败期堆稳定性）
+  （它不属于安全项：方案 1 下隔离性由分核保证，超时值错成 2.2 小时也不会让阀门脉冲变长；它影响的是“故障时设备看上去死多久”、重试包络与失败期堆稳定性。重试包络已于上文现场验证）
 - ⬜ **实机隔离性验收**：断网时阀门脉冲时长与联网时无可测差异。两条路线：真实断网对比；或在 sim 构建里加确定性阻塞（`SIM_BLOCK_MS`）+ 测量阀门实际开启时长（**确定性版本，尚未实现**，但比断网法更强：可复现、可量化）
 - ⬜ 连续运行 24 h 观察 `heap_int` 是否单调下降（泄漏检测）
-- ⬜ **真凭据 + 端到端联调**（`secrets.ini` + `src/ServerCaCert.h`）—— 当前唯一阻塞
+- ⬜ **真实温控固件（生产构建）上真机联调** —— 目前打通的是 sim 构建；传感器到位后需重跑一次
 
 ### 7.3 与本功能相邻的遗留问题
 
@@ -746,6 +755,10 @@ pio device monitor -p COM22                        # 看日志与 payload
 | 非生产 env 只靠 `#if` 隔离源码 | `src/` 下所有 `.cpp` 都会被编译，生产也会编到模拟器 | 用 `build_src_filter` 把它从生产构建里**排除**（结构性隔离，不靠链接器 GC） |
 | 在调试打印里按循环节拍输出 | 20 ms 一次 × 430 字节 → 每秒上万字节，日志淹没、netTask 长时间卡在 UART（每行 ~37 ms） | 调试打印也要按上报周期节流（实测：415 s / 42 条） |
 | 用 `${env.<名字>.<选项>}` 引用另一个 env | `InvalidProjectConfError: No section: 'env'` —— 正则把第一个点当分隔符 | 段名含冒号：`${env:adafruit_feather_esp32s3.build_flags}` |
+| 用 `-DSECRET_X=\"值\"` 注入带空格的凭据 | PlatformIO 的 flag 切分器按空格切开 → `missing terminating " character`，切出来的 `space\` 还被当成输入文件 | 凭据走 gitignored 头文件（§6.4）；从根上不要用 `-D` 携带不可控字符 |
+| 以为 `\040` / `\073` 这类 C 转义能绕过空格/`#`/`;` | 反斜杠在编译器之前就被吃掉，ELF 里存成 `040`（看着编译通过、值已坏） | 同上；且验值必须在 ELF 里搜字符串，不能只看“构建成功” |
+| 值里含 `#` 或 `;` 的 INI 配置 | configparser 用 `inline_comment_prefixes=("#", ";")`，值被从该字符起**静默截断** | 不要用 INI 放含这些字符的凭据 |
+| 用正则查“配置/源码里还有没有占位符、有没有 namespace” | 命中注释里的示例文本 → 假失败（本次就误报了两条） | 先剥注释（`^\s*;` / `^\s*//`）再断言 |
 
 **开发机工具链**
 
@@ -770,3 +783,4 @@ pio device monitor -p COM22                        # 看日志与 payload
 | 2026-09-19 | 新增 §6.9：无传感器开发用的模拟数据源（`[env:sim]`，8 阶段故障注入，payload 离线契约校验 0 invalid），并修掉 `nan` 载荷缺陷。生产镜像不含模拟器源码（`build_src_filter` 排除）；生产 Flash 因此只 +28 B（来自 nan 修复），RAM 不变 |
 | 2026-09-19 | 决定：失败路径实测（超时/重试/`offline` 告警）与隔离性验收**留到真凭据端到端时一并做**，并在 §7.2 明确标注“超时值仅经源码审查、未经测量”。同时确认这类问题**不是安全项**：方案 1 下隔离性由分核保证，超时值只关乎活性与可观测性 |
 | 2026-09-19 | §6.4 补充“取凭据（全部只读）”步骤：两个文件的读取命令、`devices.json` 两种格式与 mtime 热重载、device_id 不匹配会 403、绝对不取 CA 私钥、建议给裸板单开 device_id |
+| 2026-09-19 | **凭据机制从 `-D flags` 改为 gitignored 头文件 `src/Secrets.h`**（同 `src/ServerCaCert.h`）。三次隔离实验证明 `-D` 路径承载不了含空格的 SSID（切分失败）、八进制转义会被吃掉、`#`/`;` 会被 INI 截断。`secrets.ini` / `secrets.example.ini` 退役。**端到端首次打通**：sim 构建 + 真凭据 → `HTTP 204 × 11`，并现场验证了递增退避重试（5.7 s → 11.5 s）。免 scratch 段已更新 |
