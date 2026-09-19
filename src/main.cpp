@@ -26,6 +26,17 @@ TelemetryClient telemetryClient;
 void setup() {
   Serial.begin(Config::DebugBaudRate);
 
+  // Boot diagnostics. These also settle two questions that the build alone
+  // cannot: how much PSRAM the module really provides, and which flash size
+  // the image header reports. No delay is added on purpose - the heater pin is
+  // still unconfigured at this point, so it must not stay that way longer than
+  // the existing code already does.
+  Serial.printf("\n[BOOT] %s rev%d, %u core(s), flash %u B, psram %u B, heap %u B\n",
+                ESP.getChipModel(), (unsigned)ESP.getChipRevision(),
+                (unsigned)ESP.getChipCores(),
+                (unsigned)ESP.getFlashChipSize(),
+                (unsigned)ESP.getPsramSize(), (unsigned)ESP.getFreeHeap());
+
   heaterController.begin(systemState);
   valveController.begin(systemState);
   ledController.begin(systemState);
