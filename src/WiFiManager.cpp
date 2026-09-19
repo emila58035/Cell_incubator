@@ -7,7 +7,8 @@
 void WiFiManager::begin() {
   if (strlen(NetworkConfig::WifiSsid) == 0) {
     Serial.println(
-        "[WIFI] No SSID configured (secrets.ini missing?); networking stays off");
+        "[WIFI] No SSID configured (src/Secrets.h missing or empty); "
+        "networking stays off");
     phase_ = Phase::Unconfigured;
     return;
   }
