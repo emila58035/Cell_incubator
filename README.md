@@ -46,6 +46,7 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 ## 文档入口
 
 -   **远程访问功能全貌**（服务器端 + 单片机端）→ [`docs/REMOTE_ACCESS.md`](docs/REMOTE_ACCESS.md)
+-   **远程监控使用指南**（怎么看数据、设备怎么上线、怎么排障）→ [`docs/REMOTE_ACCESS_GUIDE.md`](docs/REMOTE_ACCESS_GUIDE.md)
 -   服务器端部署与 API → [`server/README.md`](server/README.md)
 -   AI 编码代理操作约束 → [`AGENTS.md`](AGENTS.md)
 
