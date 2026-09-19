@@ -17,11 +17,12 @@
 | 只读看板 | ✅ **已上线** | 浏览器输入密码可正常打开（已于 2026-09-18 人工验收） |
 | 数据链路 | ⬜ **空管道** | 看板显示"尚无设备上报"，因为**没有任何设备在上报** |
 | 单片机端（温控本体） | ✅ 已开发完成 | 未接入联网模块时：`pio run` SUCCESS，Flash 477,781 B / 1,441,792 B（33.1%），RAM 39,548 B（12.1%） |
-| 单片机端（联网模块） | ✅ **已编码** | 并发模型已裁决为方案 1（§6.3）；`pio run` SUCCESS，Flash **1,159,729 B / 2,097,152 B（55.3%）**，RAM 77,356 B（23.6%）。**未实机验证** |
+| 单片机端（联网模块） | ✅ **已编码 + 已烧录** | 并发模型按方案 1 实现（§6.3）；`pio run` SUCCESS，Flash **1,123,477 B / 2,097,152 B（53.6%）**，RAM 58,612 B（17.9%）。2026-09-19 首次实机烧录并抓到完整启动日志（§7.2）；**尚未联调**（无真凭据） |
 | Flash 分区表 | ✅ **已切 8 MB** | `tinyuf2-partitions-8MB.csv` + `board_upload.flash_size = 8MB`；`partitions.bin` 解码核对：`ota_0`@0x10000 / `ota_1`@0x210000 各 2048 KB，`nvs`/`otadata` 偏移未变（§6.8） |
-| 端到端联调 | ⬜ 未开始 | 需要实机 + 真凭据（`secrets.ini`、`src/ServerCaCert.h`） |
+| 实机（裸板） | ✅ 已接上 | ESP32-S3 v0.2、8 MB flash（eFuse quad）、**8 MB 八线 PSRAM**、MAC `3c:0f:02:dc:f1:84`；CH340K@COM22 与原生 USB 两路均可用（§6.8） |
+| 端到端联调 | ⬜ 未开始 | 实机已就位，只缺真凭据（`secrets.ini`、`src/ServerCaCert.h`） |
 
-**当前阻塞**：已不是设计项 —— 是**没有实机**（本机只有 4 个蓝牙 COM 口，无 USB 串口设备）与真凭据。服务器端不需要再等人。
+**当前阻塞**：只剩**真凭据**（设备 Token 与服务器 CA 证书）。实机已接上并完成首次烧录。
 
 ---
 
@@ -513,18 +514,18 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 
 | 项目 | 接入联网前 | 接入联网后（实测） | 评估 |
 |---|---|---|---|
-| Flash | 477,781 B（**33.1%**） | **1,159,729 B / 2,097,152 B（55.3%）**（8 MB 表，槽 2048 KB） | 增量 **+666 KB**，比早期估的 +300~500 KB 大得多；余量 915 KB（44.7%） |
-| RAM（静态） | 39,548 B（**12.1%**） | 77,356 B / 327,680 B（**23.6%**） | 余量充足（含 12 KB 静态 netTask 栈） |
+| Flash | 477,781 B（**33.1%**） | **1,123,477 B / 2,097,152 B（53.6%）**（8 MB 表，槽 2048 KB） | 相对联网前 +631 KB；关掉 USB CDC 又省回 36.8 KB；余量 **951 KB（46.4%）** |
+| RAM（静态） | 39,548 B（**12.1%**） | 58,612 B / 327,680 B（**17.9%**） | 余量充足（含 12 KB 静态 netTask 栈；关掉 USB CDC 后比联网初版低 18.3 KB） |
 
-**Flash：切了 8 MB 表，余量从 17% 变成 43%**。下面两个数字都由 `pio run` 实测：
+**Flash：切了 8 MB 表，余量从 17% 变成 46%**。下面的数字都由 `pio run` 实测：
 
-⚠️ **测量陷阱**：空凭据下的数字（1,159,729 B = **55.3%**，余 915 KB）会**低估真实体积**。凭据为空时编译器能把“未配置即返回”折叠掉，把请求路径的对象从静态库里排除掉 —— 同一份代码填上非空凭据后实测是 **1,194,993 B（57.0%）**，多 **35 KB**，余量降到 **902,159 B / 881 KB（43.0%）**。所以**评估预算必须用非空凭据测**（真实凭据比测试串更长，只会更大）。
+⚠️ **测量陷阱**：当前的 53.6% 是**空凭据**下的数字，会**低估真实体积**。凭据为空时编译器能把“未配置即返回”折叠掉，把请求路径的对象从静态库里排除掉 —— 同一份代码填上非空凭据后曾实测多出 **35 KB**（1,194,993 B 对 1,159,729 B）。真凭据比测试串更长，实际预期约 **56~57%**。
 
-要把这 4 MB 拿回来不需要新写分区表：framework 里已经带了 `tinyuf2-partitions-8MB.csv`（`ota_0`/`ota_1` 各 **2048 KB**）与 `tinyuf2-partitions-8MB-noota.csv`（单槽 **4096 KB**），切换是一行 `platformio.ini`。**已切到 8 MB 表**（2026-09-19，§6.8）：`board_build.partitions = tinyuf2-partitions-8MB.csv`，`ota_0`/`ota_1` 各 **2048 KB**，OTA 双分区保留。framework 另有 `tinyuf2-partitions-8MB-noota.csv`（单槽 **4096 KB**，放弃 OTA）—— 放弃 OTA 属专门决策，本轮**没**选它。
+**已切到 8 MB 表**（2026-09-19，§6.8）：`board_build.partitions = tinyuf2-partitions-8MB.csv`，`ota_0`/`ota_1` 各 **2048 KB**，OTA 双分区保留。framework 另有 `tinyuf2-partitions-8MB-noota.csv`（单槽 **4096 KB**，放弃 OTA）与 `default_8MB.csv`（单槽 **3264 KB** + 64 KB `coredump`）—— 后者与**板上原有表一致**，是待决策项之一（§6.8）。
 
 对比切表前后（同一份固件，非空凭据）：app 槽 1,408 KB → 2,048 KB，占用 82.9% → **57.0%**，余量 241 KB → **881 KB**。裁剪 cipher suite、`-Os` 这些是**真超限后**的备选，现在用不上了。
 
-结论：**当前 8 MB 表下噪音已消失**。但记住两个约束：OTA 仍要求镜像小于**单个槽**（2048 KB），而 flash 占用仍远大于温控本体时期的 33% —— 后续加字段、加缓存时要继续盯 `pio run` 的分母。
+结论：**当前 8 MB 表下噪音已消失**。但记住两个约束：OTA 仍要求镜像小于**单个槽**（2048 KB），而 flash 占用仍远大于温控本体时期的 33% —— 后续加字段、加缓存时要继续盯 `pio run` 的分母。另外：当前表**没有 `coredump` 分区**，上电日志会打两遍 `No core dump partition found!`，崩溃拿不到回溯（§6.8 待决策 3）。
 
 **栈落位已用静态分配彻底消除**：netTask 走 `xTaskCreateStaticPinnedToCore` + 静态 `StackType_t[3072]`，缓冲在 `.bss` → 内部 DRAM（预编译 libs 的 `SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY` 未开），所以“栈会不会落 PSRAM”不再是运行时假设，而是编译期确定的。任务启动时还会打印 `esp_ptr_internal(taskStack_)` 供实机核对。这很重要：写 NVS 时 SPI flash 操作会禁用 cache，PSRAM 栈那一刻不可访问。
 
@@ -535,19 +536,21 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | 项目 | 实物 | 当前构建口径 |
 |---|---|---|
 | Flash | BY25Q64 **8 MB** | **已切 8 MB 表** → app 上限 **2048 KB/槽**（2026-09-19）；`partitions.bin` 解码核对与 CSV 逐条一致 |
-| PSRAM | **8 MB 八线（Octal）** | **未启用**：`platformio.ini` 未设 `memory_type`，链接的是 `qio_qspi`（quad）变体的 `libesp_psram.a`（`compile_commands.json` 里 `qio_qspi` 72 次、`qio_opi` **0** 次）；`ESP.getPsramSize()` **尚未实测** |
+| PSRAM | **8 MB 八线（Octal）** | **实测不可用**（2026-09-19 首次上电）：启动即报 `quad_psram: PSRAM ID read error: 0x00ffffff ... wrong PSRAM line mode` + `psramAddToHeap(): PSRAM not initialized!`，`[BOOT]` 打印 `psram 0 B`。原因是链接了 `qio_qspi`（quad）变体的 `libesp_psram.a`（`compile_commands.json` 里 `qio_qspi` 72 次、`qio_opi` **0** 次）。修法是一行 `board_build.arduino.memory_type = qio_opi`（待决策） |
 | 主控 | 240 MHz | 双核 SMP 成立（`# CONFIG_FREERTOS_UNICORE is not set`），tick 1000 Hz |
-| USB | 双通道：串口芯片（UART0）+ 原生 USB | board def 带 `-DARDUINO_USB_CDC_ON_BOOT=1` → `Serial` 走**原生 USB**，串口芯片那条看不到日志 |
-| 显示 | ST7789 240×320，MOSI=21 SCLK=40 CS=16 DC=17 BL=15 RST=-1 | 配置收进 `src/User_Setup.h`，由 `build_flags`（`-DUSER_SETUP_LOADED=1` + `-include ${PROJECT_DIR}/src/User_Setup.h`）强制加载 |
+| USB | 双通道：CH340K（UART0）+ 原生 USB | `-DARDUINO_USB_CDC_ON_BOOT=0` + `build_unflags` 移除 board def 的 `=1` → `Serial` 走 **UART0**，日志与监视都用 **COM22**（实测抓到 `[BOOT]`/`[SETTINGS]`/`[NET]` 全部）；上传走 CH340K 自动下载电路 + `--upload-port COM22`，并用 `board_upload.use_1200bps_touch/wait_for_upload_port = false` 关掉 board def 的 1200bps-touch 流程。关掉 USB CDC 顺带省了 Flash 36.8 KB / RAM 18.3 KB |
+| 显示 | ST7789 240×320，MOSI=21 SCLK=40 CS=16 DC=17 BL=15 RST=-1 | 配置收进 `src/User_Setup.h`，由 `build_flags`（`-DUSER_SETUP_LOADED=1` + `-include ${PROJECT_DIR}/src/User_Setup.h`）强制加载；实测启动打印 `[DISPLAY] Size=320 x 240, sprite=READY`（精灵图分配成功，面板实际点亮未验证） |
 | 已用 IO | 28 个可编程 IO 中用了 18 个 | 全部避开八线 PSRAM 占用的 GPIO 33–37（这一点与 R8 相容） |
 
 **看门狗事实（决定 §6.3 方案 1 的形态）**：`CONFIG_ESP_TASK_WDT_PANIC=y`、超时 5 s、**只勾选 `CHECK_IDLE_TASK_CPU0`**（`..._CPU1` 未勾选）。所以 Core 0 上的 netTask 不让出会直接 PANIC 重启；而 Core 1 的主循环永不让出是安全的 —— 这正是现状能跑的原因。
 
 **已切**：8 MB 分区表（2026-09-19，见上表）。
 
-**待决策**（都不是本功能的阻塞项）：切 `memory_type = qio_opi` 启用八线 PSRAM · `board` 定义是否脱离 Adafruit Feather。
+**待决策**（都不是本功能的阻塞项）：
 
-⚠️ **切表后的烧录注意**：`nvs`(0x9000) 与 `otadata`(0xe000) 偏移未变，所以**已保存的设置不会丢**；但 `ota_1` 从 0x170000 移到了 0x210000。首次烧录前建议整片擦一次（`platformio run -t erase` 或 `esptool erase_flash`），避免旧 `otadata` 指向已经搬走的槽。
+1. **`board_build.arduino.memory_type = qio_opi`**（启用八线 PSRAM）—— 现在有实测证据说它确实没启用（见上表）。代价一行配置 + 重编。注意：一旦启用，`ESP.getFreeHeap()` 会把 8 MB 外部内存算进去，上报的 `heap_free` 会突然变大（`heap_int`/`heap_min` 不受影响，仍是判断泄漏的口径）。本项目自身**不需要** PSRAM。
+2. **`board` 定义是否脱离 Adafruit Feather** —— 现在仍用 Adafruit 的 `variant`（`pins_arduino.h`）与 `hwids`，`maximum_size` 还是 4 MB。风险低：引脚全在 `Config.h`/`User_Setup.h` 里显式写死，不依赖 variant 默认值。
+3. **分区表要不要换成 `default_8MB.csv`** —— **实测：板上原本就是这张**。槽 **3264 KB**（现 2048 KB），而且**自带 64 KB `coredump` 分区**（当前报 `No core dump partition found!`，崩溃拿不到回溯）。
 
 ---
 
@@ -563,17 +566,38 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 - 加热开关与传感器故障**解耦**：故障时只暂停输出，**开关保持 ON**
 - `pio run` SUCCESS
 
-### 7.2 已编码 / 未验证
+### 7.2 已编码 / 已烧录 / 未联调
 
-已完成（`pio run` SUCCESS，2026-09-19）：
+**2026-09-19：首次实机烧录成功**（裸板，USB 供电，无任何外接器件）。实测启动日志（COM22）：
 
-- ✅ 全部联网模块（§6.2）：`NetworkConfig.h` / `WiFiManager` / `TelemetryClient`；`main.cpp` 只加一行
-- ✅ 凭据注入两条路径**都实测过**：把标记值写进 `secrets.ini` 与 `src/ServerCaCert.h` 后，`firmware.elf` 里能搜到全部 7 个标记串；删掉这两个文件后仍能 SUCCESS（兜底成立），且标记从镜像里消失
-- ✅ 栈落位：静态分配，`.bss` → 内部 DRAM
-- ⬜ **实机烧录**（本机只有 4 个蓝牙 COM 口，无 USB 串口设备）；切了 8 MB 表后**先整片擦一次**再烧（§6.8 末尾）
-- ⬜ 隔离性验收：拔掉路由器 / kill 服务器 / 指向不存在地址三种情形下，阀门脉冲时长与联网时无可测差异
+```
+[BOOT] ESP32-S3 rev2, 2 core(s), flash 8388608 B, psram 0 B, heap 312116 B
+[HEATER] Ready on GPIO39; startup state=OFF
+[SETTINGS] No valid saved settings; using defaults
+[SETTINGS] Active: setpoint=37.0 C, light=OFF/0%, fan=OFF
+[DISPLAY] Size=320 x 240, sprite=READY
+[SHT30] ERROR: sensor not detected at 0x44
+[HEATER] Sensor fault: heating paused, switch stays ON
+[WIFI] No SSID configured (secrets.ini missing?); networking stays off
+[NET] netTask on core 0, stack 12288 B at 0x3fc9b090 (internal=1)
+[CO2] ERROR: connection response timeout, elapsed=500 ms
+```
+
+已由硬件证实：
+
+- ✅ **`[NET] netTask on core 0` + `internal=1`** —— 静态栈确实落在内部 DRAM（这是 §6.3 最关键的安全不变量）
+- ✅ **`flash 8388608 B`** —— `board_upload.flash_size = 8MB` 在镜像头生效
+- ✅ **`psram 0 B`** —— 八线 PSRAM 确实没启用（§6.8）
+- ✅ **30 s 监听：0 次重启、0 次 panic/看门狗** —— netTask 的 `vTaskDelay` 让出纪律站得住，主循环的快照发布/回读路径不死锁
+- ✅ 加热默认 ON 但在无 SHT30 时**自动暂停**（`Sensor fault: heating paused`）
+
+仍待完成：
+
+- ⬜ **实机隔离性验收**：拔掉路由器 / kill 服务器 / 指向不存在地址三种情形下，阀门脉冲时长与联网时无可测差异
 - ⬜ 连续运行 24 h 观察 `heap_int` 是否单调下降（泄漏检测）
-- ⬜ 真凭据 + 端到端联调（`secrets.ini` + `src/ServerCaCert.h`）
+- ⬜ **真凭据 + 端到端联调**（`secrets.ini` + `src/ServerCaCert.h`）—— 当前唯一阻塞
+- ✅ 凭据注入两条路径已实测（标记串进 ELF、删文件后仍能编译且标记消失）
+- ✅ 栈落位：静态分配，`.bss` → 内部 DRAM（并已在硬件上打印验证）
 
 ### 7.3 与本功能相邻的遗留问题
 
@@ -591,10 +615,11 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 |---|---|---|
 | ~~阻塞~~ | ~~并发模型裁决（§6.3）~~ | ✅ 2026-09-19 已裁决为方案 1 |
 | ~~高~~ | ~~固件联网模块编码 + 凭据注入~~ | ✅ 2026-09-19 已编码，`pio run` SUCCESS |
-| **高** | 实机烧录 + 隔离性验收（拔网 / kill 服务器 / 不存在地址三种情形） | 单片机端（缺硬件） |
-| 高 | 填真凭据并端到端联调（`secrets.ini` + `src/ServerCaCert.h`） | 单片机端 |
+| 高 | ~~实机烧录~~ + 隔离性验收（拔网 / kill 服务器 / 不存在地址三种情形） | ✅ 烧录已完成（§7.2）；验收待做 |
+| 高 | 填真凭据并端到端联调（`secrets.ini` + `src/ServerCaCert.h`）—— **当前唯一阻塞** | 单片机端 |
 | ~~中~~ | ~~决定是否切 8 MB 分区表~~ | ✅ 2026-09-19 已切（§6.7：余量 17% → 43%） |
-| 中 | 决定是否切 `memory_type = qio_opi` 启用八线 PSRAM | 决策 |
+| 中 | 决定是否切 `memory_type = qio_opi` 启用八线 PSRAM（已实测确认当前不可用） | 决策 |
+| 中 | 决定分区表是否换成 `default_8MB.csv`（槽 3264 KB + 自带 coredump；与板上原表一致） | 决策 |
 | 中 | CO₂ 单位确认（据 S8 量程），据此决定是否加阈值告警 | 硬件 / 单片机端 |
 | 中 | PID 参数随 SHT30 复核 | 单片机端 |
 | 中 | 手机 4G 访问实测复述 | 验收 |
@@ -630,6 +655,10 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | 在**空凭据**下测固件体积 | 编译器把“未配置即返回”折叠掉，请求路径对象不进镜像 → **低估约 35 KB** | 评估预算时用非空凭据测（§6.7） |
 | 被 `namespace` 内部 include 的头文件里再写 `namespace` | `NetworkConfig::NetworkConfig::ServerCaCertPem` 编译失败 | 模板头文件里**不要**套命名空间 |
 | `heap_caps_get_free_size()` / `esp_ptr_internal()` 直接调用 | 报未声明：`Arduino.h` 不带这两个 | 显式 include `esp_heap_caps.h` / `esp_memory_utils.h` |
+| board def 的 `use_1200bps_touch` + `wait_for_upload_port` | 对 CH340 那路做 1200bps 触摸 → 板子复位、原生 USB 换号 → PlatformIO 切到新口后报 `Cannot configure port ... PermissionError(13)`（看起来像驱动/句柄问题，其实是它自己换了口） | 有 CH340 自动下载电路的板子：`board_upload.use_1200bps_touch = false` + `wait_for_upload_port = false`，并用 `--upload-port` 指定 |
+| 以为 USB CDC 会像 UART 一样保留输出 | CDC 在主机未打开时**直接丢弃**输出，且每次复位换 COM 号 → 启动日志永远抓不到（本机实测 COM29 → COM30） | 带 CH340 的板子把 `Serial` 留在 UART0：`-DARDUINO_USB_CDC_ON_BOOT=0` + `build_unflags = -DARDUINO_USB_CDC_ON_BOOT=1`（只用 `-D` 会与 board def 的 `=1` 打架，靠命令行顺序决胜） |
+| 分区表没有 `coredump` 分区 | 上电打印两次 `esp_core_dump_flash: No core dump partition found!`，崩溃拿不到回溯 | 选带 coredump 的表（`default_8MB.csv` 有 64 KB） |
+| 以为换分区表必须整片擦除 | —— | 实测 **不需要**：PlatformIO 上传时会写 `boot_app0.bin` 到 `0xE000` 覆盖 otadata（写入日志与回读均确认） |
 
 **开发机工具链**
 
@@ -650,3 +679,4 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | 2026-09-19 | 按本机实测修正三处：硬件是 ESP32-S3R8/8 MB flash（非 Adafruit Feather，新增 §6.8）；`HTTPClient` 默认响应超时是 5 s 而非 30 s；补记 `setHandshakeTimeout()` 参数单位为秒。Flash 预算改写：4 MB 分区表锁住了 app 上限，不是芯片不够。TFT_eSPI 配置已收进仓库 |
 | 2026-09-19 | 联网模块落地：并发模型按方案 1 实现（`NetworkConfig.h` / `WiFiManager` / `TelemetryClient`，静态内部栈 + portMUX 快照）。**Flash 33.1% → 80.4%**（非空凭据 82.9%），RAM 12.1% → 23.6%。凭据注入两条路径实测通过；§9 增补固件联网坑表 |
 | 2026-09-19 | 切 8 MB 分区表（`tinyuf2-partitions-8MB.csv` + `flash_size = 8MB`）：app 槽 1,408 KB → **2048 KB**，Flash 占用 80.4% → **55.3%**（非空凭据 57.0%），余量 17% → 43%。OTA 双分区保留；`nvs`/`otadata` 偏移未变，`ota_1` 后移 |
+| 2026-09-19 | **首次实机烧录并验证**（§7.2）：日志证明 `flash 8388608 B`、`psram 0 B`、`netTask on core 0 (internal=1)`、30 s 无重启/无看门狗。日志通道改回 UART0（`CDC_ON_BOOT=0`）并关闭 1200bps-touch 上传流程，顺带省 Flash 36.8 KB / RAM 18.3 KB（现在 53.6% / 17.9%）。**撤销**上一行的“切表后需整片擦除”：实测 PlatformIO 会重写 otadata，无需擦除 |

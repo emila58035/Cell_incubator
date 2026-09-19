@@ -1,12 +1,12 @@
 # Cell Incubator — 细胞培养箱控制器
 
-> ESP32-S3 固件 + 服务器端远程监控。本地温控已就绪，联网上报正在施工。
+> ESP32-S3 固件 + 服务器端远程监控。本地温控已就绪，联网代码已烧录上板（待填真凭据联调）。
 
 ## 是什么
 
 细胞培养箱的嵌入式控制系统。硬件是 ESP32-S3R8 核心板（8 MB flash + 8 MB PSRAM，双 USB 通道），软件栈 PlatformIO / Arduino。
 
-> ⚠️ `platformio.ini` 仍沿用 `board = adafruit_feather_esp32s3`（quad PSRAM 变体、USB CDC on boot），与实物不完全一致：Flash 分区表已于 2026-09-19 切到 8 MB，但 PSRAM 模式与 board 定义仍待决策。事实与证据见 `docs/REMOTE_ACCESS.md` §6.8。
+> ⚠️ `platformio.ini` 仍沿用 `board = adafruit_feather_esp32s3`，与实物不完全一致（Adafruit 的 `variant` 与 `hwids`、`maximum_size` 4 MB）。**已按实测改掉的**：8 MB 分区表、`flash_size = 8MB`、日志通道回 UART0、上传不跑 1200bps-touch。**仍待决策**：八线 PSRAM 未启用（`memory_type`）、board 定义是否脱离 Feather。事实与证据见 `docs/REMOTE_ACCESS.md` §6.8。
 
 本地功能闭环：
 
@@ -20,7 +20,7 @@
 | 输入 | 旋转编码器 + 按钮，去抖动处理 |
 | 设置持久化 | Preferences（NVS），手动保存 |
 
-`pio run` 结果：RAM **23.6%** / Flash **55.3%**（app 槽 2048 KB，已切 8 MB 分区表；未接入联网模块时为 12.1% / 33.1%）。
+`pio run` 结果：RAM **17.9%** / Flash **53.6%**（app 槽 2048 KB，已切 8 MB 分区表；未接入联网模块时为 12.1% / 33.1%）。
 
 ## 仓库布局
 
@@ -36,11 +36,11 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 
 | 部分 | 状态 |
 |---|---|
-| 本地温控固件 | ✅ `pio run` SUCCESS（待实机验证） |
+| 本地温控固件 | ✅ 已上板运行（启动日志正常；执行器未接，加热自动暂停） |
 | 服务器端 | ✅ 已上线（HTTPS + Basic Auth + SQLite，`systemd` 守护） |
 | 看板 | ✅ 浏览器可访问，已人工验收 |
-| 单片机联网 | ✅ 已编码（`pio run` SUCCESS；Flash 80.4%；**未实机验证**、未填真凭据） |
-| 端到端链路 | ⬜ 卡在没有实机（本机无 USB 串口设备）与真凭据 |
+| 单片机联网 | ✅ 已编码 + 已烧录（启动日志：`netTask on core 0`、`internal=1`、30 s 无重启；**未联调**） |
+| 端到端链路 | ⬜ 只缺真凭据（`secrets.ini` + `src/ServerCaCert.h`） |
 
 ## 文档入口
 
@@ -56,4 +56,6 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 -   改完代码跑 `pio run`，没通过不要提交。
 -   显示配置在 `src/User_Setup.h`（ST7789 240×320，MOSI=21/SCLK=40/CS=16/DC=17/BL=15），由 `platformio.ini` 的 `build_flags` 强制加载（`-DUSER_SETUP_LOADED=1` + `-include`）。换面板要同时改 `src/DisplayManager.h` 里的 `#error` 防线。
 -   联网凭据走 `secrets.ini`（`extra_configs`，**必须写在 `[platformio]` 段**）+ `src/ServerCaCert.h`，两者都有 `.example` 模板且缺失时可编译（回落为空 → 只打印一次并停止上报）。
--   当前 board def 带 `-DARDUINO_USB_CDC_ON_BOOT=1`，`Serial` 走**原生 USB** 通道；板上串口芯片那条（UART0）看不到 `Serial` 输出。
+-   日志走 **UART0 → CH340K（COM22）**：`platformio.ini` 用 `-DARDUINO_USB_CDC_ON_BOOT=0` + `build_unflags` 覆盖了 board def 的 `=1`，并关掉了 board def 的 1200bps-touch 上传流程（后者会让 PlatformIO 换到原生 USB 口然后配置失败）。烧录与监视：`pio run -t upload --upload-port COM22`、`pio device monitor -p COM22`（`monitor_speed = 115200` 已在 ini 里）。原生 USB 那条会在复位时换号并丢掉主机打开前的输出，不要用它看日志。
+-   实物是 **ESP32-S3 裸板**（8 MB flash、8 MB 八线 PSRAM、CH340K + 原生 USB 双通道）。`secrets.ini` 缺失时固件不会重试联网，只打一行 `[WIFI] No SSID configured`。
+-   烧录前可用只读探测定身份：`platformio pkg exec --package tool-esptoolpy -- esptool.py --port COM22 flash_id`。
