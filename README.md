@@ -20,12 +20,12 @@
 | 输入 | 旋转编码器 + 按钮，去抖动处理 |
 | 设置持久化 | Preferences（NVS），手动保存 |
 
-`pio run` 结果：RAM 12.1% / Flash 33.1%。
+`pio run` 结果：RAM **23.6%** / Flash **80.4%**（含联网模块；未接入联网模块时为 12.1% / 33.1%）。
 
 ## 仓库布局
 
 ```
-src/             固件（10 个模块 + main.cpp + Config.h + User_Setup.h）
+src/             固件（12 个模块 + main.cpp + 配置头 Config.h / NetworkConfig.h / User_Setup.h）
 server/          服务器端：FastAPI + SQLite + Nginx 反代（已上线，见 server/README.md）
 docs/            功能文档
 platformio.ini   env: adafruit_feather_esp32s3
@@ -39,8 +39,8 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 | 本地温控固件 | ✅ `pio run` SUCCESS（待实机验证） |
 | 服务器端 | ✅ 已上线（HTTPS + Basic Auth + SQLite，`systemd` 守护） |
 | 看板 | ✅ 浏览器可访问，已人工验收 |
-| 单片机联网 | ⬜ 未编码（方案见 `docs/REMOTE_ACCESS.md` §6，**开工前有一个并发模型要定**） |
-| 端到端链路 | ⬜ 卡在联网模块 |
+| 单片机联网 | ✅ 已编码（`pio run` SUCCESS；Flash 80.4%；**未实机验证**、未填真凭据） |
+| 端到端链路 | ⬜ 卡在没有实机（本机无 USB 串口设备）与真凭据 |
 
 ## 文档入口
 
@@ -55,4 +55,5 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 -   本机 `github.com:443` 直连超时。遇到网络故障**不要自行配代理**，先向使用者说明现象并问怎么处理。
 -   改完代码跑 `pio run`，没通过不要提交。
 -   显示配置在 `src/User_Setup.h`（ST7789 240×320，MOSI=21/SCLK=40/CS=16/DC=17/BL=15），由 `platformio.ini` 的 `build_flags` 强制加载（`-DUSER_SETUP_LOADED=1` + `-include`）。换面板要同时改 `src/DisplayManager.h` 里的 `#error` 防线。
+-   联网凭据走 `secrets.ini`（`extra_configs`，**必须写在 `[platformio]` 段**）+ `src/ServerCaCert.h`，两者都有 `.example` 模板且缺失时可编译（回落为空 → 只打印一次并停止上报）。
 -   当前 board def 带 `-DARDUINO_USB_CDC_ON_BOOT=1`，`Serial` 走**原生 USB** 通道；板上串口芯片那条（UART0）看不到 `Serial` 输出。

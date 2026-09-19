@@ -3,8 +3,8 @@
 > **独立性声明**：本文档独立维护，**不引用、不依赖**仓库内任何其它文档。
 > 本文所写的一切均以**当前代码与实测结果**为准；事实变化时**只改本文**，不需要同步到别处。
 >
-> 覆盖范围：培养箱远程监控功能的两端 —— **服务器端**（已上线）与**单片机端**（未开工）。
-> 最后更新：**2026-09-19**（按本机实测修正硬件与超时事实：§6.3、§6.5、§6.7、新增 §6.8）。
+> 覆盖范围：培养箱远程监控功能的两端 —— **服务器端**（已上线）与**单片机端**（已编码、未实机验证）。
+> 最后更新：**2026-09-19**（联网模块落地并实测：§6.2 / §6.4 / §6.7 / §7.2 已更新，§9 增补固件联网坑表）。
 
 ---
 
@@ -16,11 +16,11 @@
 | HTTPS 入口 | ✅ **已上线** | `https://175.24.182.190/` 可访问，自签 IP 证书，Basic Auth 生效 |
 | 只读看板 | ✅ **已上线** | 浏览器输入密码可正常打开（已于 2026-09-18 人工验收） |
 | 数据链路 | ⬜ **空管道** | 看板显示"尚无设备上报"，因为**没有任何设备在上报** |
-| 单片机端（温控本体） | ✅ 已开发完成 | `pio run` SUCCESS；Flash 477,781 B / 1,441,792 B（33.1%），RAM 39,548 B / 327,680 B（12.1%） |
-| 单片机端（联网模块） | ⬜ **未编码** | 仅有方案（§6）；**开工前有一个必须先裁决的设计项**（§6.3） |
-| 端到端联调 | ⬜ 未开始 | 依赖单片机端联网模块 |
+| 单片机端（温控本体） | ✅ 已开发完成 | 未接入联网模块时：`pio run` SUCCESS，Flash 477,781 B / 1,441,792 B（33.1%），RAM 39,548 B（12.1%） |
+| 单片机端（联网模块） | ✅ **已编码** | 并发模型已裁决为方案 1（§6.3）；`pio run` SUCCESS，Flash **1,159,729 B / 1,441,792 B（80.4%）**，RAM 77,356 B（23.6%）。**未实机验证** |
+| 端到端联调 | ⬜ 未开始 | 需要实机 + 真凭据（`secrets.ini`、`src/ServerCaCert.h`） |
 
-**唯一阻塞**：单片机端联网的**并发模型未裁决**（§6.3）。服务器端不需要再等人。
+**当前阻塞**：已不是设计项 —— 是**没有实机**（本机只有 4 个蓝牙 COM 口，无 USB 串口设备）与真凭据。服务器端不需要再等人。
 
 ---
 
@@ -351,11 +351,11 @@ echo "$P"
 
 ### 6.1 现状
 
-固件（ESP32-S3R8，硬件事实见 §6.8）**温控本体已完成**，`src/` 下 10 个模块（各 `.h`/`.cpp`）+ `main.cpp` + `Config.h` + `User_Setup.h`，全部状态集中在 `struct SystemState`。联网部分**一行代码都没有**。
+固件（ESP32-S3R8，硬件事实见 §6.8）`src/` 下共 12 个模块（各 `.h`/`.cpp`）+ `main.cpp` + `Config.h` + `NetworkConfig.h` + `User_Setup.h`，全部状态集中在 `struct SystemState`。温控本体已完成；联网模块见 §6.2，2026-09-19 已编码，**未实机验证**。
 
 联网模块**只需读取 `SystemState`**，不修改 PID / 传感器 / 阀门 / 风扇 / 显示逻辑。
 
-### 6.2 计划新增
+### 6.2 实际新增（已编码）
 
 ```
 src/NetworkConfig.h        非敏感联网参数（上报周期、超时、任务栈/核/优先级、堆阈值）
@@ -369,14 +369,15 @@ src/ServerCaCert.h.example 入库的模板
 ```
 
 `WiFi` / `HTTPClient` / `WiFiClientSecure` 均为 arduino-esp32 内置，**不新增库依赖**。
-`main.cpp` 的 `loop()` 末尾追加两个调用（**不插入中间**，避免影响现有模块相对时序）：
+`main.cpp` 的 `loop()` 末尾追加一个调用（**不插入中间**，避免影响现有模块相对时序）：
 
 ```cpp
-wifiManager.update(now);
 telemetryClient.update(now, systemState);
 ```
 
-### 6.3 ⚠️ 并发模型（必须先裁决）
+⚠️ **与早期草案的偏差（以已实现为准）**：`WiFiManager::step()` 由 netTask 在 **Core 0** 上调用，**不在** `loop()` 里。草案曾把 `wifiManager.update(now)` 写在 `loop()` 中，那会让 Core 1 直接调 WiFi API（`WiFi.status()` 内部要取锁），与 §6.3 的“WiFi 判定只在 Core 0”自相矛盾。现在 Core 1 只做一件事：`update()` 里微秒级发布快照；链路状态经 `linkUp()` / `cloudOk()` / `rssi()` / `lastHttpCode()` 这几个 volatile 访问器回读。
+
+### 6.3 ⚠️ 并发模型（已裁决：方案 1）
 
 **问题**：`HTTPClient` / `WiFiClientSecure` 是**同步阻塞 API**。Wi-Fi 连接可以靠轮询 `WiFi.status()` 做到非阻塞，**HTTP 请求本身不行**。
 
@@ -434,24 +435,37 @@ Core 1（loopTask，控制环，永不让出）        Core 0（netTask，新增
 
 它的"低成本"是幻觉：要真正非阻塞，就得在 `WiFiClientSecure` 之上自己实现分步状态机与非阻塞 HTTP，**比方案 1 难写 3~5 倍**。
 
-**结论**：选**方案 1**。判据是 §1.3 的硬约束与"拔掉路由器后阀门脉冲时长必须无可测差异"这一验收标准 —— 方案 2 物理上过不了。
+**结论（2026-09-19 已裁决）**：选**方案 1**，且已按此实现。判据是 §1.3 的硬约束与"拔掉路由器后阀门脉冲时长必须无可测差异"这一验收标准 —— 方案 2 物理上过不了。
 
-### 6.4 配置注入
+实现细节与草案的两处收紧：
+
+1. **快照字段全部 ≤4 字节且 4 字节对齐**。`SystemState` 里的 `double setpoint` / `double heaterOutput` 是两次 32 位访问，跨核读会**撕裂**（撕裂的 `setpoint` 会被服务器 400 拒掉整条样本），所以发布时把 `setpoint` 窄化为 `float`，`heaterOutput` **不上报**（契约里没有对应字段）。8 个布尔量打包进一个 `uint8_t`。
+2. **临界区两端共用一个 `portMUX_TYPE`**。只锁读端不构成互斥：`portENTER_CRITICAL` 的跨核互斥来自 spinlock，只有写端（Core 1 的 `publish()`）也拿同一把锁才成立。临界区只包住赋值，**绝不跨越任何阻塞调用**。
+
+### 6.4 配置注入（2026-09-19 实测）
+
+`secrets.ini`（gitignore，模板 `secrets.example.ini` 入库）：
 
 ```ini
-; secrets.ini —— 绝不提交
 [secrets]
 build_flags =
-    -DSECRET_WIFI_SSID=\"...\"
-    -DSECRET_WIFI_PASS=\"...\"
-    -DSECRET_SERVER_URL=\"https://175.24.182.190/api/v1/telemetry\"
-    -DSECRET_DEVICE_ID=\"incubator-001\"
-    -DSECRET_DEVICE_TOKEN=\"<从服务器 /etc/incubator/devices.json 取>\"
+	-DSECRET_WIFI_SSID=\"...\"
+	-DSECRET_WIFI_PASS=\"...\"
+	-DSECRET_SERVER_URL=\"https://<server-address>/api/v1/telemetry\"
+	-DSECRET_DEVICE_ID=\"incubator-001\"
+	-DSECRET_DEVICE_TOKEN=\"<从服务器 /etc/incubator/devices.json 取>\"
 ```
 
-`platformio.ini` 通过 `extra_configs = secrets.ini` 引入，且**在 `secrets.ini` 缺失时要有兜底**（否则别人克隆后无法编译）。
+`platformio.ini` 侧五条约束，每一条都是实测踩出来的：
 
-CA 证书是多行 PEM，不适合走 `-D` 注入 → 单独放 `src/ServerCaCert.h`（gitignore），仓库留 `.example`。
+1. **`extra_configs` 必须写在 `[platformio]` 段。** PlatformIO 读的是 `self.get("platformio", "extra_configs", [])`；写在 `[env:...]` 段**不报错、被静默忽略**（`pio project config` 里能看到该选项，但值仍是主文件的兜底值）。
+2. 用 `${PROJECT_DIR}/secrets.ini`，不要用裸文件名：`extra_configs` 走 `glob.glob()`，相对路径依赖进程 cwd。
+3. 用 `${secrets.build_flags}` 插值把凭据拼进 env 的 `build_flags`。**不要**让 extra_configs 直接覆盖 env 的 `build_flags` —— INI 语义是整项替换，会连带丢掉 TFT 面板参数（屏仍能编译，但驱动是错的）。
+4. 兜底：`platformio.ini` 自带一个 `[secrets]` 段（全空串）。`glob` 找不到文件时返回空列表而**不报错**，所以克隆后没有 `secrets.ini` 也能编译；空串在固件侧等于“未配置”，只打印一次并停止上报，不进入重试循环。
+5. 验证方式：把标记值写进 `secrets.ini`，编译后直接在 `firmware.elf` 里搜该字符串（比看构建日志可靠）。
+
+CA 证书是多行 PEM，不适合走 `-D` → 单独放 `src/ServerCaCert.h`（gitignore，模板 `.example` 入库），由 `NetworkConfig.h` 用 `__has_include` 引入；文件不存在时回落到空串，同样只在日志里说一次。
+⚠️ 该头文件是在 `namespace NetworkConfig` **内部**被 include 的，所以**模板里不能再套一层命名空间**（否则报 `NetworkConfig::NetworkConfig::ServerCaCertPem`）。
 固件只需**CA 公钥证书**，服务器上的 `incubator-ca.key` **绝不进固件**。
 
 ### 6.5 字段映射
@@ -469,6 +483,8 @@ ESP.getMinFreeHeap() → heap_min       heap_caps_get_free_size(INTERNAL|8BIT) �
 WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmware_version
 ```
 
+**实现说明**：`setpoint`（`double`）在发布时**窄化为 `float`**；8 个布尔量打包进一个 `uint8_t flags`（见 §6.3）—— 两者都是为了让快照里每个字段都 ≤4 字节、跨核读不撕裂。
+
 **为什么 `heap_int` 要紧**：芯片是 ESP32-S3R8，带 8 MB **八线** PSRAM，且 `CONFIG_SPIRAM_USE_MALLOC 1`、`SPIRAM_MALLOC_ALWAYSINTERNAL 4096`（≤4 KB 强制内部 RAM，更大的优先落 PSRAM）。PSRAM 一旦可用，`ESP.getFreeHeap()` **就会把外部内存算进去**，单看它会漏掉内部堆泄漏 —— 而内部堆才决定“还能不能再开一个 TLS 会话”。`heap_min`（自启动以来最低水位）比瞬时值灵敏得多。
 
 ⚠️ **当前构建下八线 PSRAM 实际未启用**（见 §6.8）：链接的是 quad 变体的 `libesp_psram.a`，所以这条“掩盖泄漏”的风险目前处于潜伏状态。三个 heap 字段**照报不变**：一旦切 `memory_type = qio_opi` 或换板，掩盖效应立刻生效，而遥测契约不应该随构建配置漂移。
@@ -480,7 +496,10 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | WiFi 断开 | 指数退避重连（5 s → 60 s 封顶），**控制环完全不受影响** | 看板 OFFLINE |
 | 服务器不可达 / TLS 失败 | 记录错误码，**下一周期**再试，不加速重试 | 看板 OFFLINE |
 | Token 错误 401 | 打印一次告警并降频重试 | 看板无数据 |
-| 堆不足（< 40 KB） | 跳过本轮上报并打印，不冒险触发 OOM 重启 | 偶发缺口 |
+| 堆不足（< 40 KB 内部堆） | 跳过本轮上报并打印，不冒险触发 OOM 重启（一次 TLS 就要 ~32 KB） | 偶发缺口 |
+| `secrets.ini` / `src/ServerCaCert.h` 缺失（回落到空串） | 打印一次“未配置”后**不再上报**，不进入重试循环 | 看板无数据 |
+| SSID 为空（WiFi 未配置） | `begin()` 直接停用，`step()` 成为空操作 | 看板无数据 |
+| 载荷超出固定缓冲区 | 丢弃本周期并打印，**不发送被截断的 JSON** | 偶发缺口 |
 | 服务器 5xx / 限流 503 | 丢弃本周期数据 | 短暂缺口 |
 
 **明确取舍**：
@@ -491,16 +510,20 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 
 ### 6.7 资源预算
 
-| 项目 | 当前（含温控本体） | 预估新增 | 评估 |
+| 项目 | 接入联网前 | 接入联网后（实测） | 评估 |
 |---|---|---|---|
-| Flash | 477,781 B / 1,441,792 B（**33.1%**） | WiFi + TLS + HTTP 约 **+300~500 KB** | 预计 ~800–980 KB，**可容纳但必须实测** |
-| RAM（静态） | 39,548 B / 327,680 B（**12.1%**） | netTask 栈 12 KB（**必须内部 RAM**）+ TLS 缓冲（可能落 PSRAM） | 余量充足 |
+| Flash | 477,781 B（**33.1%**） | **1,159,729 B / 1,441,792 B（80.4%）** | ⚠️ 增量 **+666 KB**，比早期估的 +300~500 KB 大得多 |
+| RAM（静态） | 39,548 B（**12.1%**） | 77,356 B / 327,680 B（**23.6%**） | 余量充足（含 12 KB 静态 netTask 栈） |
 
-**Flash 不是瓶颈，但仍要实测**：实测值 477,781 B 是分母 1,441,792 B（= 分区表里的 1,408 KB）算出来的 33.1%。实物 flash 是 **8 MB**（§6.8），但当前用的是 4 MB 分区表，所以 app 上限被锁在 1,408 KB。按 +300~500 KB 估算，最坏 ~990 KB = **68.6%**，仍可容纳，只是留白从 67% 降到 31%。
+**Flash 已从“富余”变成“需要注意”**：1,159,729 B 占 1,441,792 B（= 分区表给的 1,408 KB）的 80.4%，只剩 **282,063 B（19.6%）**。分母是分区表给的，不是芯片给的（实物 8 MB，§6.8）。
 
-要把这 4 MB 拿回来不需要新写分区表：framework 里已经带了 `tinyuf2-partitions-8MB.csv`（`ota_0`/`ota_1` 各 **2048 KB**）与 `tinyuf2-partitions-8MB-noota.csv`（单槽 **4096 KB**），切换是一行 `platformio.ini`。裁剪 cipher suite、`-Os`、放弃 OTA 双分区这些只是真超限后的备选，**属专门决策，不是随手可做的优化**。
+⚠️ **测量陷阱**：上面这个 80.4% 是**空凭据**下的数字。凭据为空时编译器能把“未配置即返回”折叠掉，把请求路径的对象从静态库里排除掉 —— 同一份代码填上非空凭据后实测是 **1,194,993 B（82.9%）**，比空凭据多 **35 KB**，余量降到 **246,799 B（17.1%）**。所以**评估预算必须用非空凭据测**，否则会低估约 35 KB（真实凭据比测试串更长，只会更大）。
 
-⚠️ netTask 的栈有被分配到 PSRAM 的风险(`SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY 1` 且 12 KB > 4096)。编码时需**显式验证栈落位**(`heap_caps_get_free_size(INTERNAL)` 前后差),必要时改用 `xTaskCreateStatic` + 显式内部 RAM 分配。当前八线 PSRAM 未启用（§6.8），该风险处于潜伏状态；但**静态分配照做**，不要让安全性依赖 PSRAM 恰好没启用这个前提。
+要把这 4 MB 拿回来不需要新写分区表：framework 里已经带了 `tinyuf2-partitions-8MB.csv`（`ota_0`/`ota_1` 各 **2048 KB**）与 `tinyuf2-partitions-8MB-noota.csv`（单槽 **4096 KB**），切换是一行 `platformio.ini`。切到 2048 KB 槽后，同一个固件是 **57%**、余量 **881 KB（43%）**。
+
+结论：**当前 4 MB 分区表仍装得下、也仍能 OTA**（镜像小于 1,408 KB 的槽），但 17% 的余量对后续功能（更多字段、曲线缓存、保留区）很紧。切 8 MB 是“一行配置换 45% 空间”，属待决策项（§6.8）。裁剪 cipher suite、`-Os`、放弃 OTA 双分区是**真超限后**的备选，不是随手可做的优化。
+
+**栈落位已用静态分配彻底消除**：netTask 走 `xTaskCreateStaticPinnedToCore` + 静态 `StackType_t[3072]`，缓冲在 `.bss` → 内部 DRAM（预编译 libs 的 `SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY` 未开），所以“栈会不会落 PSRAM”不再是运行时假设，而是编译期确定的。任务启动时还会打印 `esp_ptr_internal(taskStack_)` 供实机核对。这很重要：写 NVS 时 SPI flash 操作会禁用 cache，PSRAM 栈那一刻不可访问。
 
 ### 6.8 硬件事实与当前构建口径（2026-09-19 实测）
 
@@ -533,12 +556,17 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 - 加热开关与传感器故障**解耦**：故障时只暂停输出，**开关保持 ON**
 - `pio run` SUCCESS
 
-### 7.2 未开始
+### 7.2 已编码 / 未验证
 
-- ⬜ 全部联网模块（§6.2）
-- ⬜ Token 与 CA 的注入、`platformio.ini` 的 `extra_configs` 兜底
-- ⬜ 实机烧录验证（含"拔掉路由器后阀门脉冲时长与联网时无可测差异"这一验收项）
+已完成（`pio run` SUCCESS，2026-09-19）：
+
+- ✅ 全部联网模块（§6.2）：`NetworkConfig.h` / `WiFiManager` / `TelemetryClient`；`main.cpp` 只加一行
+- ✅ 凭据注入两条路径**都实测过**：把标记值写进 `secrets.ini` 与 `src/ServerCaCert.h` 后，`firmware.elf` 里能搜到全部 7 个标记串；删掉这两个文件后仍能 SUCCESS（兜底成立），且标记从镜像里消失
+- ✅ 栈落位：静态分配，`.bss` → 内部 DRAM
+- ⬜ **实机烧录**（本机只有 4 个蓝牙 COM 口，无 USB 串口设备）
+- ⬜ 隔离性验收：拔掉路由器 / kill 服务器 / 指向不存在地址三种情形下，阀门脉冲时长与联网时无可测差异
 - ⬜ 连续运行 24 h 观察 `heap_int` 是否单调下降（泄漏检测）
+- ⬜ 真凭据 + 端到端联调（`secrets.ini` + `src/ServerCaCert.h`）
 
 ### 7.3 与本功能相邻的遗留问题
 
@@ -554,9 +582,11 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 
 | 优先级 | 项 | 归属 |
 |---|---|---|
-| **阻塞** | 并发模型裁决（§6.3，推荐方案 1） | 决策 |
-| 高 | 固件联网模块编码 + `secrets.ini` 注入 | 单片机端 |
-| 高 | 实机烧录 + 隔离性验收（拔网 / kill 服务器 / 不存在地址三种情形） | 单片机端 |
+| ~~阻塞~~ | ~~并发模型裁决（§6.3）~~ | ✅ 2026-09-19 已裁决为方案 1 |
+| ~~高~~ | ~~固件联网模块编码 + 凭据注入~~ | ✅ 2026-09-19 已编码，`pio run` SUCCESS |
+| **高** | 实机烧录 + 隔离性验收（拔网 / kill 服务器 / 不存在地址三种情形） | 单片机端（缺硬件） |
+| 高 | 填真凭据并端到端联调（`secrets.ini` + `src/ServerCaCert.h`） | 单片机端 |
+| 中 | 决定是否切 8 MB 分区表（§6.7：余量 17% → 43%） | 决策 |
 | 中 | CO₂ 单位确认（据 S8 量程），据此决定是否加阈值告警 | 硬件 / 单片机端 |
 | 中 | PID 参数随 SHT30 复核 | 单片机端 |
 | 中 | 手机 4G 访问实测复述 | 验收 |
@@ -582,6 +612,17 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | FastAPI 的 `jsonable_encoder()` **没有** `fallback` 参数 | 校验失败时 400 处理函数自己抛错 → 500 | 自定义安全序列化（`ctx` 里的对象转 str） |
 | 载荷字段名与 API 输出字段名不一致 | 看板永久显示 `--` 且无任何报错 | 契约测试里断言字段名 |
 
+**固件联网（2026-09-19 实测）**
+
+| 坑 | 后果 | 正确做法 |
+|---|---|---|
+| `extra_configs` 写在 `[env:...]` 段 | PlatformIO **静默忽略**（只读 `[platformio]` 段）→ `secrets.ini` 形同不存在，固件用空凭据编译 | 放进 `[platformio]` 段；用 `pio project config` 核对值是否真被替换 |
+| `extra_configs` 用裸文件名 | 走 `glob.glob()`，相对路径依赖进程 cwd | 用 `${PROJECT_DIR}/secrets.ini` |
+| 让 extra_configs 直接覆盖 env 的 `build_flags` | INI 语义是整项替换，会连带丢掉 TFT 面板参数（屏还能编译，但驱动错了） | 用 `${secrets.build_flags}` 插值拼进原有 `build_flags` |
+| 在**空凭据**下测固件体积 | 编译器把“未配置即返回”折叠掉，请求路径对象不进镜像 → **低估约 35 KB** | 评估预算时用非空凭据测（§6.7） |
+| 被 `namespace` 内部 include 的头文件里再写 `namespace` | `NetworkConfig::NetworkConfig::ServerCaCertPem` 编译失败 | 模板头文件里**不要**套命名空间 |
+| `heap_caps_get_free_size()` / `esp_ptr_internal()` 直接调用 | 报未声明：`Arduino.h` 不带这两个 | 显式 include `esp_heap_caps.h` / `esp_memory_utils.h` |
+
 **开发机工具链**
 
 | 坑 | 后果 | 正确做法 |
@@ -599,3 +640,4 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 |---|---|
 | 2026-09-18 | 首次建立。服务器端已完成部署与外部验收；单片机端联网未开工；并发模型待裁决 |
 | 2026-09-19 | 按本机实测修正三处：硬件是 ESP32-S3R8/8 MB flash（非 Adafruit Feather，新增 §6.8）；`HTTPClient` 默认响应超时是 5 s 而非 30 s；补记 `setHandshakeTimeout()` 参数单位为秒。Flash 预算改写：4 MB 分区表锁住了 app 上限，不是芯片不够。TFT_eSPI 配置已收进仓库 |
+| 2026-09-19 | 联网模块落地：并发模型按方案 1 实现（`NetworkConfig.h` / `WiFiManager` / `TelemetryClient`，静态内部栈 + portMUX 快照）。**Flash 33.1% → 80.4%**（非空凭据 82.9%），RAM 12.1% → 23.6%。凭据注入两条路径实测通过；§9 增补固件联网坑表 |
