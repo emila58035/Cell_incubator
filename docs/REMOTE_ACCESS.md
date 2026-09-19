@@ -4,7 +4,7 @@
 > 本文所写的一切均以**当前代码与实测结果**为准；事实变化时**只改本文**，不需要同步到别处。
 >
 > 覆盖范围：培养箱远程监控功能的两端 —— **服务器端**（已上线）与**单片机端**（未开工）。
-> 最后更新：**2026-09-18 23:55**（服务器端部署与验收完成当天）。
+> 最后更新：**2026-09-19**（按本机实测修正硬件与超时事实：§6.3、§6.5、§6.7、新增 §6.8）。
 
 ---
 
@@ -351,7 +351,7 @@ echo "$P"
 
 ### 6.1 现状
 
-固件（ESP32-S3，Adafruit Feather）**温控本体已完成**，`src/` 下 11 个模块 + `main.cpp` + `Config.h`，全部状态集中在 `struct SystemState`。联网部分**一行代码都没有**。
+固件（ESP32-S3R8，硬件事实见 §6.8）**温控本体已完成**，`src/` 下 10 个模块（各 `.h`/`.cpp`）+ `main.cpp` + `Config.h` + `User_Setup.h`，全部状态集中在 `struct SystemState`。联网部分**一行代码都没有**。
 
 联网模块**只需读取 `SystemState`**，不修改 PID / 传感器 / 阀门 / 风扇 / 显示逻辑。
 
@@ -386,10 +386,14 @@ telemetryClient.update(now, systemState);
 |---|---|---|---|
 | TCP connect | `HTTPClient::setConnectTimeout` | 5 s | 3 s |
 | **TLS 握手** | **`WiFiClientSecure::setHandshakeTimeout`** | **120 s** | 8 s |
-| 等响应 | `HTTPClient::setTimeout` | 30 s | 3 s |
-| **合计最坏阻塞** | | **~125 s** | **~14 s** |
+| 等响应 | `HTTPClient::setTimeout` | 5 s | 3 s |
+| **合计最坏阻塞** | | **~130 s** | **~14 s** |
 
-**关键陷阱**：`HTTPClient::setTimeout()` **管不到 TLS 握手** —— 它只调 `_client->setTimeout()`，而握手超时是 `WiFiClientSecure` 的独立字段，**只能**用 `setHandshakeTimeout()` 压。漏掉这一句，一次普通的"服务器不可达/反代挂了/证书不匹配"就能让主循环**静默卡 2 分钟**。
+**关键陷阱**:`HTTPClient::setTimeout()` **管不到 TLS 握手** -- 它只调 `_client->setTimeout()`,而握手超时是 `WiFiClientSecure` 的独立字段,**只能**用 `setHandshakeTimeout()` 压。漏掉这一句,一次普通的"服务器不可达/反代挂了/证书不匹配"就能让主循环**静默卡 2 分钟**。
+
+**单位陷阱**：`setHandshakeTimeout()` 的参数是**秒**（源码 `WiFiClientSecure.cpp` 里 `handshake_timeout = 参数 * 1000`，两个构造路径的默认值都是 `120000` ms）。写成 `setHandshakeTimeout(8000)` 会变成 8000 秒，等于取消超时。
+
+**修正（2026-09-19）**：上表里“等响应”的默认值实测是 **5 s**，不是 30 s（`HTTPClient.h:42` `#define HTTPCLIENT_DEFAULT_TCP_TIMEOUT (5000)`，连接与响应都用它）；因此最坏合计是 5 + 120 + 5 = **~130 s**。结论不变：120 s 的握手超时是主项。
 
 **而且是静默的**：`loopTask` 默认**不订阅**任务看门狗（订阅要走显式的 `enableLoopTaskWatcher()`，本仓库没有调用），所以卡住**不会重启、不会报错**，只会安静降级。
 
@@ -426,7 +430,7 @@ Core 1（loopTask，控制环，永不让出）        Core 0（netTask，新增
 
 **方案 2（不推荐）：主循环同步 POST**
 
-代码最简（无 RTOS、无锁），但**在健康网络下也不合格**：正常一次上报往返 100–200 ms，每 10 s 注入一次抖动，阀门误差 +20~30%；遇到故障则卡到 14 s（漏设握手超时则 125 s），阀门开 14.5 s。且失败模式**无看门狗捕获、静默发生**。
+代码最简（无 RTOS、无锁），但**在健康网络下也不合格**：正常一次上报往返 100–200 ms，每 10 s 注入一次抖动，阀门误差 +20~30%；遇到故障则卡到 14 s（漏设握手超时则 130 s），阀门开 14.5 s。且失败模式**无看门狗捕获、静默发生**。
 
 它的"低成本"是幻觉：要真正非阻塞，就得在 `WiFiClientSecure` 之上自己实现分步状态机与非阻塞 HTTP，**比方案 1 难写 3~5 倍**。
 
@@ -465,7 +469,9 @@ ESP.getMinFreeHeap() → heap_min       heap_caps_get_free_size(INTERNAL|8BIT) �
 WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmware_version
 ```
 
-**为什么 `heap_int` 要紧**：本板有 2 MB PSRAM，且 `CONFIG_SPIRAM_USE_MALLOC 1`、`SPIRAM_MALLOC_ALWAYSINTERNAL 4096`（≤4 KB 强制内部 RAM，更大的优先落 PSRAM）。因此 `ESP.getFreeHeap()` **会把 PSRAM 算进去**，单看它会漏掉内部堆泄漏 —— 而内部堆才决定"还能不能再开一个 TLS 会话"。`heap_min`（自启动以来最低水位）比瞬时值灵敏得多。
+**为什么 `heap_int` 要紧**：芯片是 ESP32-S3R8，带 8 MB **八线** PSRAM，且 `CONFIG_SPIRAM_USE_MALLOC 1`、`SPIRAM_MALLOC_ALWAYSINTERNAL 4096`（≤4 KB 强制内部 RAM，更大的优先落 PSRAM）。PSRAM 一旦可用，`ESP.getFreeHeap()` **就会把外部内存算进去**，单看它会漏掉内部堆泄漏 —— 而内部堆才决定“还能不能再开一个 TLS 会话”。`heap_min`（自启动以来最低水位）比瞬时值灵敏得多。
+
+⚠️ **当前构建下八线 PSRAM 实际未启用**（见 §6.8）：链接的是 quad 变体的 `libesp_psram.a`，所以这条“掩盖泄漏”的风险目前处于潜伏状态。三个 heap 字段**照报不变**：一旦切 `memory_type = qio_opi` 或换板，掩盖效应立刻生效，而遥测契约不应该随构建配置漂移。
 
 ### 6.6 失败模式与取舍
 
@@ -490,9 +496,28 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | Flash | 477,781 B / 1,441,792 B（**33.1%**） | WiFi + TLS + HTTP 约 **+300~500 KB** | 预计 ~800–980 KB，**可容纳但必须实测** |
 | RAM（静态） | 39,548 B / 327,680 B（**12.1%**） | netTask 栈 12 KB（**必须内部 RAM**）+ TLS 缓冲（可能落 PSRAM） | 余量充足 |
 
-**Flash 是真正的瓶颈**：应用分区只有 **1.41 MB**。若加入 TLS 后超限，可选项是裁剪 mbedTLS cipher suite、`-Os`，或**放弃 OTA 双分区**（这是需要专门决策的取舍，不是随手可做的优化）。
+**Flash 不是瓶颈，但仍要实测**：实测值 477,781 B 是分母 1,441,792 B（= 分区表里的 1,408 KB）算出来的 33.1%。实物 flash 是 **8 MB**（§6.8），但当前用的是 4 MB 分区表，所以 app 上限被锁在 1,408 KB。按 +300~500 KB 估算，最坏 ~990 KB = **68.6%**，仍可容纳，只是留白从 67% 降到 31%。
 
-⚠️ netTask 的栈有被分配到 PSRAM 的风险（`SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY 1` 且 12 KB > 4096）。编码时需**显式验证栈落位**（`heap_caps_get_free_size(INTERNAL)` 前后差），必要时改用 `xTaskCreateStatic` + 显式内部 RAM 分配。
+要把这 4 MB 拿回来不需要新写分区表：framework 里已经带了 `tinyuf2-partitions-8MB.csv`（`ota_0`/`ota_1` 各 **2048 KB**）与 `tinyuf2-partitions-8MB-noota.csv`（单槽 **4096 KB**），切换是一行 `platformio.ini`。裁剪 cipher suite、`-Os`、放弃 OTA 双分区这些只是真超限后的备选，**属专门决策，不是随手可做的优化**。
+
+⚠️ netTask 的栈有被分配到 PSRAM 的风险(`SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY 1` 且 12 KB > 4096)。编码时需**显式验证栈落位**(`heap_caps_get_free_size(INTERNAL)` 前后差),必要时改用 `xTaskCreateStatic` + 显式内部 RAM 分配。当前八线 PSRAM 未启用（§6.8），该风险处于潜伏状态；但**静态分配照做**，不要让安全性依赖 PSRAM 恰好没启用这个前提。
+
+### 6.8 硬件事实与当前构建口径（2026-09-19 实测）
+
+实物是 **ESP32-S3R8** 核心板，不是 Adafruit Feather。以下“当前构建口径”栏全部来自本机实测（board def JSON、`framework-arduinoespressif32-libs\esp32s3\sdkconfig`、`compile_commands.json`）：
+
+| 项目 | 实物 | 当前构建口径 |
+|---|---|---|
+| Flash | BY25Q64 **8 MB** | 仍用 4 MB 表 → app 上限 **1,408 KB** |
+| PSRAM | **8 MB 八线（Octal）** | **未启用**：`platformio.ini` 未设 `memory_type`，链接的是 `qio_qspi`（quad）变体的 `libesp_psram.a`（`compile_commands.json` 里 `qio_qspi` 72 次、`qio_opi` **0** 次）；`ESP.getPsramSize()` **尚未实测** |
+| 主控 | 240 MHz | 双核 SMP 成立（`# CONFIG_FREERTOS_UNICORE is not set`），tick 1000 Hz |
+| USB | 双通道：串口芯片（UART0）+ 原生 USB | board def 带 `-DARDUINO_USB_CDC_ON_BOOT=1` → `Serial` 走**原生 USB**，串口芯片那条看不到日志 |
+| 显示 | ST7789 240×320，MOSI=21 SCLK=40 CS=16 DC=17 BL=15 RST=-1 | 配置收进 `src/User_Setup.h`，由 `build_flags`（`-DUSER_SETUP_LOADED=1` + `-include ${PROJECT_DIR}/src/User_Setup.h`）强制加载 |
+| 已用 IO | 28 个可编程 IO 中用了 18 个 | 全部避开八线 PSRAM 占用的 GPIO 33–37（这一点与 R8 相容） |
+
+**看门狗事实（决定 §6.3 方案 1 的形态）**：`CONFIG_ESP_TASK_WDT_PANIC=y`、超时 5 s、**只勾选 `CHECK_IDLE_TASK_CPU0`**（`..._CPU1` 未勾选）。所以 Core 0 上的 netTask 不让出会直接 PANIC 重启；而 Core 1 的主循环永不让出是安全的 —— 这正是现状能跑的原因。
+
+**待决策**（都不是本功能的阻塞项）：切 8 MB 分区表 · 切 `memory_type = qio_opi` 启用八线 PSRAM · `board` 定义是否脱离 Adafruit Feather。
 
 ---
 
@@ -573,3 +598,4 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | 日期 | 变更 |
 |---|---|
 | 2026-09-18 | 首次建立。服务器端已完成部署与外部验收；单片机端联网未开工；并发模型待裁决 |
+| 2026-09-19 | 按本机实测修正三处：硬件是 ESP32-S3R8/8 MB flash（非 Adafruit Feather，新增 §6.8）；`HTTPClient` 默认响应超时是 5 s 而非 30 s；补记 `setHandshakeTimeout()` 参数单位为秒。Flash 预算改写：4 MB 分区表锁住了 app 上限，不是芯片不够。TFT_eSPI 配置已收进仓库 |

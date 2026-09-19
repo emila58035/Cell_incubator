@@ -4,7 +4,9 @@
 
 ## 是什么
 
-细胞培养箱的嵌入式控制系统。硬件平台 Adafruit Feather ESP32-S3，软件栈 PlatformIO / Arduino。
+细胞培养箱的嵌入式控制系统。硬件是 ESP32-S3R8 核心板（8 MB flash + 8 MB PSRAM，双 USB 通道），软件栈 PlatformIO / Arduino。
+
+> ⚠️ `platformio.ini` 目前仍按 `board = adafruit_feather_esp32s3` 编译（4 MB 分区表、quad PSRAM 变体），与实物不一致。切换属待决策，事实与证据见 `docs/REMOTE_ACCESS.md` §6.8。
 
 本地功能闭环：
 
@@ -23,7 +25,7 @@
 ## 仓库布局
 
 ```
-src/             固件（11 个模块 + main.cpp + Config.h）
+src/             固件（10 个模块 + main.cpp + Config.h + User_Setup.h）
 server/          服务器端：FastAPI + SQLite + Nginx 反代（已上线，见 server/README.md）
 docs/            功能文档
 platformio.ini   env: adafruit_feather_esp32s3
@@ -52,3 +54,5 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 -   全部 LF / UTF-8 无 BOM，由 `.gitattributes` 强制。
 -   本机 `github.com:443` 直连超时。遇到网络故障**不要自行配代理**，先向使用者说明现象并问怎么处理。
 -   改完代码跑 `pio run`，没通过不要提交。
+-   显示配置在 `src/User_Setup.h`（ST7789 240×320，MOSI=21/SCLK=40/CS=16/DC=17/BL=15），由 `platformio.ini` 的 `build_flags` 强制加载（`-DUSER_SETUP_LOADED=1` + `-include`）。换面板要同时改 `src/DisplayManager.h` 里的 `#error` 防线。
+-   当前 board def 带 `-DARDUINO_USB_CDC_ON_BOOT=1`，`Serial` 走**原生 USB** 通道；板上串口芯片那条（UART0）看不到 `Serial` 输出。
