@@ -40,6 +40,7 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 | 服务器端 | ✅ 已上线（HTTPS + Basic Auth + SQLite，`systemd` 守护） |
 | 看板 | ✅ 浏览器可访问，已人工验收 |
 | 单片机联网 | ✅ 已编码 + 已烧录（启动日志：`netTask on core 0`、`internal=1`、30 s 无重启；**未联调**） |
+| 模拟数据源 | ✅ `pio run -e sim` 可用（8 阶段故障注入；payload 经服务器模型离线校验 **0 invalid**） |
 | 端到端链路 | ⬜ 只缺真凭据（`secrets.ini` + `src/ServerCaCert.h`） |
 
 ## 文档入口
@@ -59,3 +60,5 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 -   日志走 **UART0 → CH340K（COM22）**：`platformio.ini` 用 `-DARDUINO_USB_CDC_ON_BOOT=0` + `build_unflags` 覆盖了 board def 的 `=1`，并关掉了 board def 的 1200bps-touch 上传流程（后者会让 PlatformIO 换到原生 USB 口然后配置失败）。烧录与监视：`pio run -t upload --upload-port COM22`、`pio device monitor -p COM22`（`monitor_speed = 115200` 已在 ini 里）。原生 USB 那条会在复位时换号并丢掉主机打开前的输出，不要用它看日志。
 -   实物是 **ESP32-S3 裸板**（8 MB flash、8 MB 八线 PSRAM、CH340K + 原生 USB 双通道）。`secrets.ini` 缺失时固件不会重试联网，只打一行 `[WIFI] No SSID configured`。
 -   烧录前可用只读探测定身份：`platformio pkg exec --package tool-esptoolpy -- esptool.py --port COM22 flash_id`。
+-   **无传感器开发**用 `pio run -e sim`（详见 `docs/REMOTE_ACCESS.md` §6.9）：模拟器只在 `SystemState` 写入层顶替驱动，PID/阀门/显示/payload 都是真的；payload 每周期打到串口，无 AP 也能验契约。⚠️ **绝不能烧到接着执行器的板子上**（假温度会驱动真实 PWM）。模拟构建报 `firmware_version = 0.1.0-sim`，便于事后区分数据。
+-   动过 `src/` 后建议两个 env 都编：`pio run` 与 `pio run -e sim`（生产构建用 `build_src_filter` 排除了 `SensorSimulator.cpp`，只编生产不会发现模拟器编译错误）。

@@ -552,6 +552,53 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 2. **`board` 定义是否脱离 Adafruit Feather** —— 现在仍用 Adafruit 的 `variant`（`pins_arduino.h`）与 `hwids`，`maximum_size` 还是 4 MB。风险低：引脚全在 `Config.h`/`User_Setup.h` 里显式写死，不依赖 variant 默认值。
 3. **分区表要不要换成 `default_8MB.csv`** —— **实测：板上原本就是这张**。槽 **3264 KB**（现 2048 KB），而且**自带 64 KB `coredump` 分区**（当前报 `No core dump partition found!`，崩溃拿不到回溯）。
 
+### 6.9 无传感器开发：模拟数据源（2026-09-19）
+
+裸板、无任何外接器件时的开发路径。`[env:sim]` 用 `SensorSimulator` 顶替两个传感器驱动，而且**只在 `SystemState` 的写入层**顶替 —— PID、阀门逻辑、显示、payload 全部仍是生产代码。
+
+```bash
+pio run                                            # 生产镜像
+pio run -e sim                                     # 开发镜像
+pio run -e sim -t upload --upload-port COM22       # 烧录
+pio device monitor -p COM22                        # 看日志与 payload
+```
+
+| 项 | 生产 env | sim env |
+|---|---|---|
+| 传感器 | SHT30 + S8 | `SensorSimulator` |
+| `SensorSimulator.cpp` | **不参与编译**（`build_src_filter` 排除） | 参与 |
+| payload 打印 | 无 | 每周期打印 `[SIM] body: ...`（**无链路时也打印**） |
+| `firmware_version` | `0.1.0` | **`0.1.0-sim`**（便于在数据库/看板上区分） |
+
+⚠️ **安全**：模拟温度会让 PID 真的输出 PWM、阀门真的脉冲。**绝不能把 sim 镜像烧到接着执行器的板子上**，固件启动时会打印警告。
+
+**8 阶段场景（每轮 400 s 循环）**：
+
+| 阶段 | 时长 | 注入 | 用途 |
+|---|---|---|---|
+| `KnownValues` | 30 s | 固定 37.02 / 55.30 / 51000，全 valid | 首条样本完全可预测，可逐字段核对服务器存了什么 |
+| `WarmUp` | 70 s | 热模型从 24.5 ℃ 升向设定值 | 上升曲线；PWM 从满占空回落 |
+| `Steady` | 120 s | PID 闭环 + CO₂ 扫过阀门阈值带 | 加热/阀门/CO₂ 三条曲线互相印证 |
+| `Co2Offline` | 40 s | `co2Available=false` | 阀门保持关闭；看板区分“不在线” |
+| `Co2Untrusted` | 30 s | `co2Valid=false` | 第二个 CO₂ 状态 |
+| `ClimateFault` | 40 s | `invalidateClimate()` → 两个 flag 均 false、值为 NaN | 触发 `sensor_fault` 告警 |
+| `Recovery` | 40 s | 恢复 valid | 告警应补 `cleared_ts` |
+| `HumidityFault` | 30 s | 仅 `humidityValid=false` | 第二类 `sensor_fault` |
+
+数据模型（**不是被控对象模型**，只保证遥测字段自洽，**不能用于 PID 调参**）：温度是一阶热模型、响应真实 `heaterDuty`；湿度是周期漂移 + 确定性 LCG 噪声；CO₂ 是慢扫 + 真实 `valveOpen` 扣减；三者都夹在服务器校验范围内。采样与真实驱动同为 **1 Hz**（每个 setter 都会置 `displayDirty`，写太快会疯狂重绘）。
+
+**离线契约校验（无需服务器与设备 token）**：
+
+1. sim 构建把 payload 打到串口，**包括链路未建立时**（所以无 AP、无凭据也能验）；
+2. 把抓到的 JSON 逐条喂给**服务器自己的模型**：
+   `tmp/venv-test/Scripts/python.exe tmp/check_payloads.py <日志文件>`
+   （脚本把 `sys.path` 指到 `server/`，`import app` 后直接用 `app.TelemetryIn`）；
+3. 实测：整轮 42 条 payload、8 个阶段全覆盖、**0 invalid**、21 个契约字段齐全、无多余字段。
+
+**由此发现并修掉一个真缺陷**：`invalidateClimate()` 会把 `temperature`/`humidity` 置为 `NAN`，而原来的 `"%.2f"` 会打印出 `nan` —— 那不是合法 JSON，服务器会拒掉**整条**样本。于是服务器只看到缺口、`sensor_fault` 告警永远不会触发（而那正是它存在的理由）。现在值为 NaN 时输出 `null`，语义由 `temperature_ok` / `humidity_ok` 承载；实测 `ClimateFault` 阶段载荷为 `"temperature":null,"temperature_ok":false`。
+
+**未验证**：失败路径（连接超时、重试节奏、`offline` 告警）需要真实 WiFi 凭据 —— 当前 `secrets.ini` 的 SSID 为空，链路管理器保持 inert，`reportOnce()` 不会被走到。
+
 ---
 
 ## 7. 单片机端进度
@@ -598,6 +645,7 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 - ⬜ **真凭据 + 端到端联调**（`secrets.ini` + `src/ServerCaCert.h`）—— 当前唯一阻塞
 - ✅ 凭据注入两条路径已实测（标记串进 ELF、删文件后仍能编译且标记消失）
 - ✅ 栈落位：静态分配，`.bss` → 内部 DRAM（并已在硬件上打印验证）
+- ✅ **模拟数据源可用**（§6.9）：`pio run -e sim` 在裸板上注入 8 阶段合成数据，payload 经服务器模型离线校验 **0 invalid**；并由此修掉了 `nan` 载荷缺陷（§6.9 末）
 
 ### 7.3 与本功能相邻的遗留问题
 
@@ -617,6 +665,7 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | ~~高~~ | ~~固件联网模块编码 + 凭据注入~~ | ✅ 2026-09-19 已编码，`pio run` SUCCESS |
 | 高 | ~~实机烧录~~ + 隔离性验收（拔网 / kill 服务器 / 不存在地址三种情形） | ✅ 烧录已完成（§7.2）；验收待做 |
 | 高 | 填真凭据并端到端联调（`secrets.ini` + `src/ServerCaCert.h`）—— **当前唯一阻塞** | 单片机端 |
+| 中 | 用 sim 构建跑失败路径（连接超时 / 重试节奏 / `offline` 告警），需真实 WiFi 凭据 | 单片机端 |
 | ~~中~~ | ~~决定是否切 8 MB 分区表~~ | ✅ 2026-09-19 已切（§6.7：余量 17% → 43%） |
 | 中 | 决定是否切 `memory_type = qio_opi` 启用八线 PSRAM（已实测确认当前不可用） | 决策 |
 | 中 | 决定分区表是否换成 `default_8MB.csv`（槽 3264 KB + 自带 coredump；与板上原表一致） | 决策 |
@@ -659,6 +708,10 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | 以为 USB CDC 会像 UART 一样保留输出 | CDC 在主机未打开时**直接丢弃**输出，且每次复位换 COM 号 → 启动日志永远抓不到（本机实测 COM29 → COM30） | 带 CH340 的板子把 `Serial` 留在 UART0：`-DARDUINO_USB_CDC_ON_BOOT=0` + `build_unflags = -DARDUINO_USB_CDC_ON_BOOT=1`（只用 `-D` 会与 board def 的 `=1` 打架，靠命令行顺序决胜） |
 | 分区表没有 `coredump` 分区 | 上电打印两次 `esp_core_dump_flash: No core dump partition found!`，崩溃拿不到回溯 | 选带 coredump 的表（`default_8MB.csv` 有 64 KB） |
 | 以为换分区表必须整片擦除 | —— | 实测 **不需要**：PlatformIO 上传时会写 `boot_app0.bin` 到 `0xE000` 覆盖 otadata（写入日志与回读均确认） |
+| `NAN` 经 `"%.2f"` 输出成 `nan` | 不是合法 JSON → 服务器拒掉**整条**样本，`sensor_fault` 告警永远触发不了 | NaN 输出 `null`，语义交给 `*_ok` 标志（§6.9） |
+| 非生产 env 只靠 `#if` 隔离源码 | `src/` 下所有 `.cpp` 都会被编译，生产也会编到模拟器 | 用 `build_src_filter` 把它从生产构建里**排除**（结构性隔离，不靠链接器 GC） |
+| 在调试打印里按循环节拍输出 | 20 ms 一次 × 430 字节 → 每秒上万字节，日志淹没、netTask 长时间卡在 UART（每行 ~37 ms） | 调试打印也要按上报周期节流（实测：415 s / 42 条） |
+| 用 `${env.<名字>.<选项>}` 引用另一个 env | `InvalidProjectConfError: No section: 'env'` —— 正则把第一个点当分隔符 | 段名含冒号：`${env:adafruit_feather_esp32s3.build_flags}` |
 
 **开发机工具链**
 
@@ -680,3 +733,4 @@ WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmw
 | 2026-09-19 | 联网模块落地：并发模型按方案 1 实现（`NetworkConfig.h` / `WiFiManager` / `TelemetryClient`，静态内部栈 + portMUX 快照）。**Flash 33.1% → 80.4%**（非空凭据 82.9%），RAM 12.1% → 23.6%。凭据注入两条路径实测通过；§9 增补固件联网坑表 |
 | 2026-09-19 | 切 8 MB 分区表（`tinyuf2-partitions-8MB.csv` + `flash_size = 8MB`）：app 槽 1,408 KB → **2048 KB**，Flash 占用 80.4% → **55.3%**（非空凭据 57.0%），余量 17% → 43%。OTA 双分区保留；`nvs`/`otadata` 偏移未变，`ota_1` 后移 |
 | 2026-09-19 | **首次实机烧录并验证**（§7.2）：日志证明 `flash 8388608 B`、`psram 0 B`、`netTask on core 0 (internal=1)`、30 s 无重启/无看门狗。日志通道改回 UART0（`CDC_ON_BOOT=0`）并关闭 1200bps-touch 上传流程，顺带省 Flash 36.8 KB / RAM 18.3 KB（现在 53.6% / 17.9%）。**撤销**上一行的“切表后需整片擦除”：实测 PlatformIO 会重写 otadata，无需擦除 |
+| 2026-09-19 | 新增 §6.9：无传感器开发用的模拟数据源（`[env:sim]`，8 阶段故障注入，payload 离线契约校验 0 invalid），并修掉 `nan` 载荷缺陷。生产镜像不含模拟器源码（`build_src_filter` 排除）；生产 Flash 因此只 +28 B（来自 nan 修复），RAM 不变 |
