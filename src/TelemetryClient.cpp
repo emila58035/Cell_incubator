@@ -5,6 +5,20 @@
 
 namespace {
 const char *jsonBool(bool value) { return value ? "true" : "false"; }
+
+// JSON has no NaN literal. Printing "nan" - what printf produces for a NaN -
+// makes the whole body unparseable, so the server would reject the entire
+// sample. It would reject exactly the sample that reports a sensor fault, which
+// is the case the sensor_fault alert exists for. Send null instead and let the
+// matching *_ok flag carry the meaning. SystemState holds NaN whenever
+// invalidateClimate() runs.
+void jsonFloat(char *out, size_t size, float value, int decimals) {
+  if (isnan(value)) {
+    snprintf(out, size, "null");
+    return;
+  }
+  snprintf(out, size, "%.*f", decimals, (double)value);
+}
 }  // namespace
 
 void TelemetryClient::begin() {
@@ -37,6 +51,17 @@ void TelemetryClient::taskLoop() {
     rssi_ = wifi_.rssi();
 
     if (!linkUp_) {
+#if SENSOR_SIMULATION
+      // Development aid: still build and print the payload, so the contract can
+      // be checked with no access point and no credentials. Throttled to the
+      // report interval on purpose - printing on every 20 ms iteration floods
+      // the log and keeps the task inside the UART for ~37 ms per line, which
+      // distorts exactly the timing this task is supposed to keep quiet.
+      if ((int32_t)(now - nextReportMs) >= 0) {
+        nextReportMs = now + NetworkConfig::ReportIntervalMs;
+        printBodyOnly();
+      }
+#endif
       continue;
     }
     if ((int32_t)(now - nextReportMs) < 0) {
@@ -100,6 +125,16 @@ TelemetrySample TelemetryClient::takeSnapshot() {
   return copy;
 }
 
+TelemetryDiagnostics TelemetryClient::gatherDiagnostics() const {
+  TelemetryDiagnostics diagnostics;
+  diagnostics.heapFree = (uint32_t)ESP.getFreeHeap();
+  diagnostics.heapMin = (uint32_t)ESP.getMinFreeHeap();
+  diagnostics.heapInt =
+      (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  diagnostics.rssi = rssi_;
+  return diagnostics;
+}
+
 void TelemetryClient::reportOnce(uint32_t now) {
   if (strlen(NetworkConfig::ServerCaCertPem) == 0) {
     if (!reportedMissingCa_) {
@@ -129,20 +164,22 @@ void TelemetryClient::reportOnce(uint32_t now) {
 
   const TelemetrySample sample = takeSnapshot();
 
-  TelemetryDiagnostics diagnostics;
-  diagnostics.heapFree = (uint32_t)ESP.getFreeHeap();
-  diagnostics.heapMin = (uint32_t)ESP.getMinFreeHeap();
-  diagnostics.heapInt = (uint32_t)heapInt;
-  diagnostics.rssi = rssi_;
+  TelemetryDiagnostics diagnostics = gatherDiagnostics();
 
   int length = 0;
   if (!buildBody(sample, diagnostics, body_, sizeof(body_), length)) {
     Serial.println("[NET] Payload buffer too small; report dropped");
     return;
   }
+#if SENSOR_SIMULATION
+  Serial.printf("[SIM] body: %s\n", body_);
+#endif
 
   const int code = postBody(body_, length);
   httpCode_ = (int16_t)code;
+#if SENSOR_SIMULATION
+  Serial.printf("[SIM] report -> HTTP %d\n", code);
+#endif
   if (code == 204) {
     cloudOk_ = true;
     lastSuccessMs_ = now;
@@ -152,28 +189,48 @@ void TelemetryClient::reportOnce(uint32_t now) {
   }
 }
 
+#if SENSOR_SIMULATION
+void TelemetryClient::printBodyOnly() {
+  const TelemetrySample sample = takeSnapshot();
+  const TelemetryDiagnostics diagnostics = gatherDiagnostics();
+  int length = 0;
+  if (!buildBody(sample, diagnostics, body_, sizeof(body_), length)) {
+    Serial.println("[SIM] Payload buffer too small");
+    return;
+  }
+  Serial.printf("[SIM] body (no link): %s\n", body_);
+}
+#endif
+
 bool TelemetryClient::buildBody(const TelemetrySample &sample,
                                 const TelemetryDiagnostics &diagnostics,
                                 char *out, size_t size, int &length) {
+  char temperatureText[16];
+  char humidityText[16];
+  char setpointText[16];
+  jsonFloat(temperatureText, sizeof(temperatureText), sample.temperature, 2);
+  jsonFloat(humidityText, sizeof(humidityText), sample.humidity, 2);
+  jsonFloat(setpointText, sizeof(setpointText), sample.setpoint, 2);
+
   const int written = snprintf(
       out, size,
       "{\"device_id\":\"%s\",\"uptime_s\":%lu,\"firmware_version\":\"%s\","
-      "\"temperature\":%.2f,\"temperature_ok\":%s,"
-      "\"humidity\":%.2f,\"humidity_ok\":%s,"
+      "\"temperature\":%s,\"temperature_ok\":%s,"
+      "\"humidity\":%s,\"humidity_ok\":%s,"
       "\"co2\":%lu,\"co2_ok\":%s,\"co2_available\":%s,"
-      "\"target_temperature\":%.2f,"
+      "\"target_temperature\":%s,"
       "\"heater_on\":%s,\"heater_pwm\":%lu,"
       "\"light\":%s,\"light_pct\":%u,"
       "\"fan\":%s,\"valve\":%s,"
       "\"rssi\":%d,"
       "\"heap_free\":%lu,\"heap_min\":%lu,\"heap_int\":%lu}",
       NetworkConfig::DeviceId, (unsigned long)sample.uptimeS,
-      NetworkConfig::FirmwareVersion, (double)sample.temperature,
+      NetworkConfig::FirmwareVersion, temperatureText,
       jsonBool(sample.flags & TelemetryTemperatureValid),
-      (double)sample.humidity, jsonBool(sample.flags & TelemetryHumidityValid),
+      humidityText, jsonBool(sample.flags & TelemetryHumidityValid),
       (unsigned long)sample.co2, jsonBool(sample.flags & TelemetryCo2Valid),
       jsonBool(sample.flags & TelemetryCo2Available),
-      (double)sample.setpoint,
+      setpointText,
       jsonBool(sample.flags & TelemetryHeatingEnabled),
       (unsigned long)sample.heaterDuty,
       jsonBool(sample.flags & TelemetryLightEnabled),

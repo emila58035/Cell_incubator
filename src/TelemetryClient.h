@@ -75,7 +75,13 @@ class TelemetryClient {
   void taskLoop();
   void publish(uint32_t now, SystemState &state);
   TelemetrySample takeSnapshot();
+  TelemetryDiagnostics gatherDiagnostics() const;
   void reportOnce(uint32_t now);
+#if SENSOR_SIMULATION
+  // Development build only: build and print the payload without posting, so the
+  // contract can be checked with no access point and no credentials.
+  void printBodyOnly();
+#endif
   bool buildBody(const TelemetrySample &sample,
                  const TelemetryDiagnostics &diagnostics, char *out, size_t size,
                  int &length);

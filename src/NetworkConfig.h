@@ -29,7 +29,13 @@
 
 namespace NetworkConfig {
 
+// The simulated build reports a suffixed version so that simulated samples are
+// distinguishable from real ones in the database and on the dashboard.
+#if SENSOR_SIMULATION
+constexpr char FirmwareVersion[] = "0.1.0-sim";
+#else
 constexpr char FirmwareVersion[] = "0.1.0";
+#endif
 
 constexpr char WifiSsid[] = SECRET_WIFI_SSID;
 constexpr char WifiPassword[] = SECRET_WIFI_PASS;

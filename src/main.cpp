@@ -1,19 +1,34 @@
-#include "SHT30Sensor.h"
+// The development build ([env:sim] in platformio.ini) swaps the two sensor
+// drivers for SensorSimulator, which fabricates readings so that the telemetry
+// path can be exercised on a board with no sensors attached.
+#ifndef SENSOR_SIMULATION
+#define SENSOR_SIMULATION 0
+#endif
+
 #include "Config.h"
 #include "DisplayManager.h"
 #include "FanController.h"
 #include "HeaterController.h"
 #include "InputManager.h"
-#include "SenseAirS8Sensor.h"
-#include "SettingsStorage.h"
-#include "ValveController.h"
 #include "LEDController.h"
+#include "SettingsStorage.h"
 #include "SystemState.h"
 #include "TelemetryClient.h"
+#include "ValveController.h"
+#if SENSOR_SIMULATION
+#include "SensorSimulator.h"
+#else
+#include "SenseAirS8Sensor.h"
+#include "SHT30Sensor.h"
+#endif
 
 SystemState systemState;
+#if SENSOR_SIMULATION
+SensorSimulator sensorSimulator;
+#else
 SHT30Sensor climateSensor;
 SenseAirS8Sensor co2Sensor;
+#endif
 InputManager inputManager;
 HeaterController heaterController;
 DisplayManager displayManager;
@@ -45,8 +60,12 @@ void setup() {
   settingsStorage.begin(systemState);
   displayManager.begin(systemState);
   inputManager.begin();
+#if SENSOR_SIMULATION
+  sensorSimulator.begin(systemState);
+#else
   climateSensor.begin(systemState);
   co2Sensor.begin(systemState);
+#endif
 
   heaterController.update(systemState);
   ledController.update(systemState);
@@ -63,8 +82,12 @@ void loop() {
   if (systemState.settingsSaveRequested) {
     settingsStorage.saveNow(systemState);
   }
+#if SENSOR_SIMULATION
+  sensorSimulator.update(now, systemState);
+#else
   climateSensor.update(now, systemState);
   co2Sensor.update(now, systemState);
+#endif
   heaterController.update(systemState);
   displayManager.update(systemState);
   valveController.update(now, systemState);
