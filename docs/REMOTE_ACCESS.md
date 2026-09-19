@@ -470,6 +470,33 @@ CA 证书是多行 PEM，不适合走 `-D` → 单独放 `src/ServerCaCert.h`（
 ⚠️ 该头文件是在 `namespace NetworkConfig` **内部**被 include 的，所以**模板里不能再套一层命名空间**（否则报 `NetworkConfig::NetworkConfig::ServerCaCertPem`）。
 固件只需**CA 公钥证书**，服务器上的 `incubator-ca.key` **绝不进固件**。
 
+#### 取凭据（全部只读）
+
+三样东西，来源不同：
+
+| 凭据 | 从哪取 | 备注 |
+|---|---|---|
+| WiFi SSID / 密码 | 你自己的网络（手机热点就够） | 不来自服务器 |
+| 设备 Token（64 位 hex） | 服务器 `/etc/incubator/devices.json` | 0640 `root:incubator` → 需 `sudo` |
+| 服务器 CA **公钥**证书（PEM） | 服务器 `/etc/incubator/certs/incubator-ca.pem` | 0644，可公开；就是固件要内嵌的那份 |
+
+```bash
+ssh ubuntu@175.24.182.190
+sudo cat /etc/incubator/devices.json            # 取 token
+sudo cat /etc/incubator/certs/incubator-ca.pem  # 取 CA 公钥（可公开）
+```
+
+- **绝不要取** `incubator-ca.key`（CA 私钥，0600 `root:root`，需离线备份；进了固件等于把签发权送出去），也不需要 `server.key` / `server.pem`。
+- `devices.json` 两种写法都支持（实测 `app.py` 的 `token_map()`）：
+  `{"incubator-001": "<hex>"}` 或 `{"incubator-001": {"token": "<hex>", "label": "箱 1"}}`。
+- Token 丢了或想换：**直接编辑该文件即可**，服务按 mtime 自动重载、**不需要重启**；新 token 用 `openssl rand -hex 32`（刚好 64 位 hex）。
+- ⚠️ `devices.json` 里的 `device_id` 必须与 `SECRET_DEVICE_ID` **完全一致**，否则服务器按 `payload.device_id != authed_device` 返回 **403**（实测 `app.py` 的 `POST /api/v1/telemetry`）。
+- 建议（可选）：给裸板单开一个 `device_id`（如 `incubator-dev-001`）+ 单独 token，模拟数据就不会混进 `incubator-001` 的真实记录。
+
+填入两个 **gitignored** 文件（模板均已入库）：`secrets.ini`（← `secrets.example.ini`，注意保留 `\"` 转义形式）与 `src/ServerCaCert.h`（← `src/ServerCaCert.h.example`，PEM 原样粘进 raw string，**不要再套 namespace**）。
+
+推荐使用者自己填：凭据不进对话记录、不由协助方写入文件（若要协助方代填，属 AGENTS.md §1 的 🔴 类，需明确授权）。
+
 ### 6.5 字段映射
 
 ```
@@ -742,3 +769,4 @@ pio device monitor -p COM22                        # 看日志与 payload
 | 2026-09-19 | **首次实机烧录并验证**（§7.2）：日志证明 `flash 8388608 B`、`psram 0 B`、`netTask on core 0 (internal=1)`、30 s 无重启/无看门狗。日志通道改回 UART0（`CDC_ON_BOOT=0`）并关闭 1200bps-touch 上传流程，顺带省 Flash 36.8 KB / RAM 18.3 KB（现在 53.6% / 17.9%）。**撤销**上一行的“切表后需整片擦除”：实测 PlatformIO 会重写 otadata，无需擦除 |
 | 2026-09-19 | 新增 §6.9：无传感器开发用的模拟数据源（`[env:sim]`，8 阶段故障注入，payload 离线契约校验 0 invalid），并修掉 `nan` 载荷缺陷。生产镜像不含模拟器源码（`build_src_filter` 排除）；生产 Flash 因此只 +28 B（来自 nan 修复），RAM 不变 |
 | 2026-09-19 | 决定：失败路径实测（超时/重试/`offline` 告警）与隔离性验收**留到真凭据端到端时一并做**，并在 §7.2 明确标注“超时值仅经源码审查、未经测量”。同时确认这类问题**不是安全项**：方案 1 下隔离性由分核保证，超时值只关乎活性与可观测性 |
+| 2026-09-19 | §6.4 补充“取凭据（全部只读）”步骤：两个文件的读取命令、`devices.json` 两种格式与 mtime 热重载、device_id 不匹配会 403、绝对不取 CA 私钥、建议给裸板单开 device_id |
