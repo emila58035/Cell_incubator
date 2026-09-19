@@ -6,7 +6,7 @@
 
 细胞培养箱的嵌入式控制系统。硬件是 ESP32-S3R8 核心板（8 MB flash + 8 MB PSRAM，双 USB 通道），软件栈 PlatformIO / Arduino。
 
-> ⚠️ `platformio.ini` 目前仍按 `board = adafruit_feather_esp32s3` 编译（4 MB 分区表、quad PSRAM 变体），与实物不一致。切换属待决策，事实与证据见 `docs/REMOTE_ACCESS.md` §6.8。
+> ⚠️ `platformio.ini` 仍沿用 `board = adafruit_feather_esp32s3`（quad PSRAM 变体、USB CDC on boot），与实物不完全一致：Flash 分区表已于 2026-09-19 切到 8 MB，但 PSRAM 模式与 board 定义仍待决策。事实与证据见 `docs/REMOTE_ACCESS.md` §6.8。
 
 本地功能闭环：
 
@@ -20,7 +20,7 @@
 | 输入 | 旋转编码器 + 按钮，去抖动处理 |
 | 设置持久化 | Preferences（NVS），手动保存 |
 
-`pio run` 结果：RAM **23.6%** / Flash **80.4%**（含联网模块；未接入联网模块时为 12.1% / 33.1%）。
+`pio run` 结果：RAM **23.6%** / Flash **55.3%**（app 槽 2048 KB，已切 8 MB 分区表；未接入联网模块时为 12.1% / 33.1%）。
 
 ## 仓库布局
 
