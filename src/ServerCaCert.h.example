@@ -1,0 +1,21 @@
+// Copy this file to src/ServerCaCert.h (gitignored) and paste the CA public
+// certificate that signs the server certificate. On the server that is
+// /etc/incubator/certs/incubator-ca.pem.
+//
+// Only the public certificate belongs here. The matching private key
+// (incubator-ca.key) stays on the server and must never reach the firmware.
+//
+// NetworkConfig.h includes this header only when it exists, so a clone without
+// it still compiles. An empty string is treated as "not configured": the
+// networking modules then log once and suppress reports instead of failing on
+// every interval.
+//
+// Do NOT wrap the value in a namespace: NetworkConfig.h includes this file from
+// *inside* namespace NetworkConfig, so adding one here would declare
+// NetworkConfig::NetworkConfig::ServerCaCertPem and fail to compile.
+#pragma once
+
+constexpr char ServerCaCertPem[] = R"EOF(-----BEGIN CERTIFICATE-----
+paste the CA certificate here, keeping the BEGIN/END lines
+-----END CERTIFICATE-----
+)EOF";

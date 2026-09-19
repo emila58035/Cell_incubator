@@ -9,6 +9,7 @@
 #include "ValveController.h"
 #include "LEDController.h"
 #include "SystemState.h"
+#include "TelemetryClient.h"
 
 SystemState systemState;
 SHT30Sensor climateSensor;
@@ -20,6 +21,7 @@ ValveController valveController;
 LEDController ledController;
 FanController fanController;
 SettingsStorage settingsStorage;
+TelemetryClient telemetryClient;
 
 void setup() {
   Serial.begin(Config::DebugBaudRate);
@@ -39,6 +41,8 @@ void setup() {
   ledController.update(systemState);
   fanController.update(systemState);
   displayManager.update(systemState);
+
+  telemetryClient.begin();
 }
 
 void loop() {
@@ -55,4 +59,7 @@ void loop() {
   valveController.update(now, systemState);
   ledController.update(systemState);
   fanController.update(systemState);
+  // Appended last on purpose: the networking modules must not shift the
+  // relative timing of the control modules above.
+  telemetryClient.update(now, systemState);
 }
