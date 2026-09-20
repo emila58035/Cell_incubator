@@ -50,6 +50,67 @@ AGENTS.md        AI 编码代理的结构维护规则（常驻注入）
 -   服务器端部署与 API → [`server/README.md`](server/README.md)
 -   AI 编码代理操作约束 → [`AGENTS.md`](AGENTS.md)
 
+## 协作者接入
+
+> 本仓库是 **private**，`docs/` 下含服务器 IP、Nginx 布局与部署脚本。
+> **加人 = 交出全部提交历史与这些情报**，而且对方已 clone 的副本无法收回。加之前先想清楚。
+
+### 1. 加人（仓库所有者操作）
+
+GitHub → 仓库 **Settings → Collaborators → Add people** → 填用户名或邮箱 → 权限选 **Write** → 对方接受邮件邀请后生效。
+
+⚠️ 免费档的 private 仓库**不支持分支保护**（需 GitHub Pro / Team），所以“直推 master”没有技术闸门。
+请到 Settings → Branches 自行确认当前档位；若确实没有保护，下面第 5 节的约定就是唯一防线。
+
+### 2. 对方需要准备
+
+| 项 | 说明 |
+|---|---|
+| Git + VS Code | 仓库带 `.vscode/extensions.json`，打开时会提示安装 PlatformIO IDE 扩展 |
+| clone | `git clone https://github.com/emila58035/Cell_incubator.git` |
+| **首次构建需联 GitHub** | `platformio.ini` 的 `platform_packages` 从 GitHub 拉取钉住的 `arduino-esp32 3.0.7` 与 `esp32-arduino-libs`。中国大陆直连 `github.com:443` 常常超时（本项目开发机就是如此），需自备可用网络 |
+| 构建 | `pio run`（默认 env = 生产固件）；`pio run -e sim` = 无传感器模拟构建 |
+| 行尾 | `.gitattributes` 强制 LF / UTF-8 无 BOM，**不要**去改 `core.autocrlf` |
+
+### 3. clone 之后拿不到的三个文件（必须带外传）
+
+它们被 `.gitignore` 排除，**不会**随仓库到达；仓库里只有 `.example` 模板。缺了它们 `pio run` 依然成功，但设备不会联网。
+
+| 文件 | 内容 | 怎么给 |
+|---|---|---|
+| `src/Secrets.h` | Wi-Fi SSID/密码、服务器 URL、设备 ID、设备 Token | 复制 `src/Secrets.h.example` 填值；**值由所有者通过仓库外渠道单独发**，不要写进 issue / PR / 提交消息 |
+| `src/ServerCaCert.h` | 自签 CA 的**公钥**证书 | 取服务器上的 `incubator-ca.pem`（位置见 `docs/REMOTE_ACCESS.md` §2.4）；**私钥永不出服务器** |
+| 看板 Basic Auth 密码 | 浏览器看数据用 | 所有者单独给；重置方法见 `docs/REMOTE_ACCESS.md` §4.9 |
+
+设备 Token 存于服务器，格式与权限见 `docs/REMOTE_ACCESS.md` §2.4。旧版的 `secrets.ini` 已退役。
+
+### 4. 首次烧录必读
+
+- **分区表已从 4 MB 换成 8 MB**：首次烧录前**必须擦除整片 flash**，否则残留的 `otadata` 会指向旧槽位。
+- **`pio run -e sim` 绠不能烧到接了加热/阀门的板子上** —— 模拟器喂的是合成温度，PID 会据此驱动**真实**输出。sim 固件版本号是 `0.1.0-sim`，便于事后区分数据。
+- 日志走 UART0 → CH340K，**不是**原生 USB（原因与端口见下面「给接手者」）。
+- 烧录前可用只读探测定身份：`platformio pkg exec --package tool-esptoolpy -- esptool.py --port <COM口> flash_id`。
+
+### 5. 协作约定
+
+- **一个提交一个主题**；动了 `src/` 必须 `pio run` 通过再提交（改过 `src/` 建议两个 env 都编）。
+- 结构规则见 [`AGENTS.md`](AGENTS.md)。若你用 AI 编码工具，它会自动加载该文件——里面的判级与禁令**同样适用于你**。
+- 服务器 IP / 域名 / Nginx 路径**只允许出现在 `docs/`**；写进 `src/` 或顶层文件即视为错误。
+- 凭据永不入库、永不出现在提交消息或 issue 里。
+- **不 force-push、不改写已推送的历史**；确需改写先说明并取得同意。
+
+### 6. 若同时给了服务器 SSH
+
+那台机器**不是本项目专用机**：上面跑着与本项目无关的长期服务，包括一个大体积的游戏服务器目录、面板与 VNC。
+**动手前必读** `docs/REMOTE_ACCESS.md` §2.5「机器上的既有服务与红线」：那里列了不得触碰的路径、
+不得使用的命令（包括会连带破坏既有 OTA 站点的证书工具用法）、面板配置为何不生效、
+以及磁盘紧张时的正确处理方式。数据库是唯一有状态的资产，改前先备份。
+
+### 7. 移除协作者
+
+Settings → Collaborators → 移除。注意：**对方已 clone 的副本与已拉取的历史无法收回**。
+若怀疑凭据外泄，**轮换设备 Token 与看板密码比移除权限更紧迫**（方法见 `docs/REMOTE_ACCESS.md` §4.9）。
+
 ## 给接手者
 
 -   仓库是 **private**（文档含服务器 IP 与 Nginx 布局），不得转公开。
