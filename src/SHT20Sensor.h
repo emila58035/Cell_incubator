@@ -16,6 +16,7 @@ class SHT20Sensor {
  private:
   SHT20 sensor_;
   bool available_ = false;
+  uint8_t consecutiveErrors_ = 0;
   uint32_t lastSampleTime_ = 0;
   uint32_t lastConnectAttemptTime_ = 0;
 
