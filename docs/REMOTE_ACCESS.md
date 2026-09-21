@@ -438,7 +438,7 @@ telemetryClient.update(now, systemState);
 
 ```
 Core 1（loopTask，控制环，永不让出）        Core 0（netTask，新增）
-  SHT30 采样 / S8 轮询                        vTaskDelay(20ms) 让出
+  SHT20 采样 / S8 轮询                        vTaskDelay(20ms) 让出
   PID Compute / ledcWrite / 阀门 / 风扇        WiFi.status() 判定
   TFT 显示 / 旋钮输入                          到点 → 取快照 → HTTPS POST（阻塞只在这里）
   telemetryClient.update() ──portMUX 临界区取快照──▶
@@ -620,7 +620,7 @@ pio device monitor -p COM22                        # 看日志与 payload
 
 | 项 | 生产 env | sim env |
 |---|---|---|
-| 传感器 | SHT30 + S8 | `SensorSimulator` |
+| 传感器 | SHT20 + S8 | `SensorSimulator` |
 | `SensorSimulator.cpp` | **不参与编译**（`build_src_filter` 排除） | 参与 |
 | payload 打印 | 无 | 每周期打印 `[SIM] body: ...`（**无链路时也打印**） |
 | `firmware_version` | `0.1.0` | **`0.1.0-sim`**（便于在数据库/看板上区分） |
@@ -661,7 +661,7 @@ pio device monitor -p COM22                        # 看日志与 payload
 ### 7.1 已完成（与本功能无关，但它是数据源）
 
 - 温控闭环：双增益 PID（保守 Kp=10 / Ki=0.1；激进 Kp=20；3 ℃ 切换带），采样 1 s
-- 传感器：SHT30（温湿度，I²C 0x44）、SenseAir S8（CO₂，UART1 Modbus，非阻塞轮询）
+- 传感器：SHT20（温湿度，I²C 0x40）、SenseAir S8（CO₂，UART1 Modbus，非阻塞轮询）
 - 执行器：加热 PWM（8 位，1 kHz）、风扇、光照 PWM、CO₂ 阀门（脉冲式）
 - 交互：旋转编码器 + 按键 + 320×240 TFT
 - 设置持久化（手动保存，不频繁写 NVS）

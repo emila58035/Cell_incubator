@@ -19,14 +19,14 @@
 #include "SensorSimulator.h"
 #else
 #include "SenseAirS8Sensor.h"
-#include "SHT30Sensor.h"
+#include "SHT20Sensor.h"
 #endif
 
 SystemState systemState;
 #if SENSOR_SIMULATION
 SensorSimulator sensorSimulator;
 #else
-SHT30Sensor climateSensor;
+SHT20Sensor climateSensor;
 SenseAirS8Sensor co2Sensor;
 #endif
 InputManager inputManager;

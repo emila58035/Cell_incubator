@@ -8,8 +8,8 @@ constexpr uint32_t DebugBaudRate = 115200;
 
 constexpr int ShtSdaPin = 1;
 constexpr int ShtSclPin = 2;
-// SHT30 shares the SHT3x command set; ADDR pin low -> 0x44, high -> 0x45.
-constexpr uint8_t ShtAddress = 0x44;
+// The SHT2x family has no address strap: the SHT20 answers at I2C 0x40, and the
+// robtillaart/SHT2x driver hardcodes that address internally.
 constexpr uint32_t ShtSampleIntervalMs = 1000;
 constexpr uint32_t ShtReconnectIntervalMs = 5000;
 

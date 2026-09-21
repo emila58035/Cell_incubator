@@ -172,7 +172,7 @@ void SensorSimulator::enterPhase(Phase phase, uint32_t now, SystemState &state) 
 
     case Phase::ClimateFault:
       // Both flags go false and both values become NaN, exactly like a failing
-      // SHT30. The simulator keeps its own copy so Recovery can restore it.
+      // SHT20. The simulator keeps its own copy so Recovery can restore it.
       state.invalidateClimate();
       break;
 
