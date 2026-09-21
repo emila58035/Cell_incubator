@@ -36,6 +36,12 @@ const char *describeError(const int error) {
   }
 }
 
+//  Only transport level failures mean the sensor has left the bus.
+bool isTransportError(const int error) {
+  return error == SHT2x_ERR_WRITECMD || error == SHT2x_ERR_READBYTES ||
+         error == SHT2x_ERR_NOT_CONNECT;
+}
+
 }  // namespace
 
 void SHT20Sensor::begin(SystemState &state) {
@@ -61,7 +67,6 @@ bool SHT20Sensor::connect(uint32_t now, SystemState &state) {
   //  begin() probes the bus and then issues a soft reset, so it fails when the
   //  chip is absent or held low on the bus.
   available_ = sensor_.begin();
-  consecutiveErrors_ = 0;
 
   if (!available_) {
     state.invalidateClimate();
@@ -72,12 +77,6 @@ bool SHT20Sensor::connect(uint32_t now, SystemState &state) {
 
   Serial.printf("[SHT20] Ready on SDA=GPIO%d, SCL=GPIO%d\n",
                 Config::ShtSdaPin, Config::ShtSclPin);
-
-  //  begin() issues a soft reset and returns straight away, but the sensor
-  //  needs up to 15 ms of recovery before it accepts the next command. Reading
-  //  immediately NACKs the measurement with SHT2x_ERR_WRITECMD, and since every
-  //  reconnect retries begin() that failure would never clear on its own.
-  delay(Config::ShtResetRecoveryMs);
   sample(now, state);
   return true;
 }
@@ -85,22 +84,10 @@ bool SHT20Sensor::connect(uint32_t now, SystemState &state) {
 void SHT20Sensor::sample(uint32_t now, SystemState &state) {
   lastSampleTime_ = now;
 
-  //  The two conversions are driven explicitly through the asynchronous API
-  //  instead of the library's read(), because read() gates readiness on the
-  //  datasheet maxima and that proved too early on this hardware; see the
-  //  comment on Config::ShtTemperatureConversionMs for the observed symptom.
-  bool readOk = sensor_.requestTemperature();
-  if (readOk) {
-    delay(Config::ShtTemperatureConversionMs);
-    readOk = sensor_.readTemperature();
-  }
-  if (readOk) {
-    readOk = sensor_.requestHumidity();
-  }
-  if (readOk) {
-    delay(Config::ShtHumidityConversionMs);
-    readOk = sensor_.readHumidity();
-  }
+  //  read() drives a full conversion of both channels and blocks for up to
+  //  ~114 ms at the default 14-bit / 12-bit resolution. It reports I2C level
+  //  failures through its return value.
+  const bool readOk = sensor_.read();
   //  getError() clears the flag, so it is fetched exactly once.
   //
   //  In SHT2x 0.5.5 this is a forward-compatible guard rather than an active
@@ -112,32 +99,21 @@ void SHT20Sensor::sample(uint32_t now, SystemState &state) {
   const int error = sensor_.getError();
 
   if (!readOk || error != SHT2x_OK) {
-    //  One bad frame is normal on a noisy bus, so it invalidates the reading
-    //  (the heater pauses for this cycle) without declaring the sensor gone.
-    //  Only a run of failures triggers the reconnect backoff, mirroring how
-    //  SenseAirS8Sensor treats its own transient errors. A single glitch then
-    //  costs one sample interval rather than a full five second reconnect.
-    consecutiveErrors_++;
     state.invalidateClimate();
 
-    if (consecutiveErrors_ >= Config::ShtMaximumConsecutiveErrors) {
+    if (isTransportError(error)) {
       available_ = false;
       lastConnectAttemptTime_ = now;
-      consecutiveErrors_ = 0;
-      Serial.printf("[SHT20] ERROR: sensor unavailable after %u failures (%s)\n",
-                    static_cast<unsigned>(Config::ShtMaximumConsecutiveErrors),
+      Serial.printf("[SHT20] ERROR: sensor disconnected (%s)\n",
                     describeError(error));
-      return;
+    } else if (error != SHT2x_OK) {
+      Serial.printf("[SHT20] ERROR: rejected reading (%s)\n",
+                    describeError(error));
+    } else {
+      Serial.println("[SHT20] ERROR: measurement failed");
     }
-
-    Serial.printf("[SHT20] ERROR: %s; retry %u/%u on the next interval\n",
-                  describeError(error),
-                  static_cast<unsigned>(consecutiveErrors_),
-                  static_cast<unsigned>(Config::ShtMaximumConsecutiveErrors));
     return;
   }
-
-  consecutiveErrors_ = 0;
 
   const float temperature = sensor_.getTemperature();
   if (!isfinite(temperature) || temperature < -40.0f ||
