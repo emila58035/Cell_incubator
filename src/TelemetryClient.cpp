@@ -2,6 +2,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_memory_utils.h"
+#include "Config.h"
 
 namespace {
 const char *jsonBool(bool value) { return value ? "true" : "false"; }
@@ -19,6 +20,41 @@ void jsonFloat(char *out, size_t size, float value, int decimals) {
   }
   snprintf(out, size, "%.*f", decimals, (double)value);
 }
+
+bool jsonString(const char *json, const char *key, char *out, size_t size) {
+  char marker[40];
+  snprintf(marker, sizeof(marker), "\"%s\":\"", key);
+  const char *start = strstr(json, marker);
+  if (start == nullptr) return false;
+  start += strlen(marker);
+  const char *end = strchr(start, '"');
+  if (end == nullptr || end == start || (size_t)(end - start) >= size) return false;
+  memcpy(out, start, end - start);
+  out[end - start] = '\0';
+  return true;
+}
+
+bool jsonBoolValue(const char *json, const char *key, bool &value) {
+  char marker[40];
+  snprintf(marker, sizeof(marker), "\"%s\":", key);
+  const char *start = strstr(json, marker);
+  if (start == nullptr) return false;
+  start += strlen(marker);
+  if (strncmp(start, "true", 4) == 0) { value = true; return true; }
+  if (strncmp(start, "false", 5) == 0) { value = false; return true; }
+  return false;
+}
+
+bool jsonNumber(const char *json, const char *key, float &value) {
+  char marker[40];
+  snprintf(marker, sizeof(marker), "\"%s\":", key);
+  const char *start = strstr(json, marker);
+  if (start == nullptr) return false;
+  start += strlen(marker);
+  char *end = nullptr;
+  value = strtof(start, &end);
+  return end != start;
+}
 }  // namespace
 
 void TelemetryClient::begin() {
@@ -31,6 +67,13 @@ void TelemetryClient::begin() {
 
 void TelemetryClient::taskEntry(void *arg) {
   static_cast<TelemetryClient *>(arg)->taskLoop();
+}
+
+void TelemetryClient::websocketEvent(void *handler_args, esp_event_base_t,
+                                     int32_t event_id, void *event_data) {
+  auto *client = static_cast<TelemetryClient *>(handler_args);
+  client->handleWebsocketEvent(event_id,
+      static_cast<esp_websocket_event_data_t *>(event_data));
 }
 
 void TelemetryClient::taskLoop() {
@@ -64,17 +107,49 @@ void TelemetryClient::taskLoop() {
 #endif
       continue;
     }
-    if ((int32_t)(now - nextReportMs) < 0) {
+    if (strlen(NetworkConfig::WebSocketUrl) == 0) {
+      if ((int32_t)(now - nextReportMs) >= 0) {
+        nextReportMs = now + NetworkConfig::ReportIntervalMs;
+        reportOnce(now);
+      }
       continue;
     }
-    // Deadline rather than accumulator: a skipped report must not shift the
-    // following ones.
-    nextReportMs = now + NetworkConfig::ReportIntervalMs;
-    reportOnce(now);
+    if (websocket_ == nullptr && strlen(NetworkConfig::WebSocketUrl) > 0) {
+      snprintf(authorization_, sizeof(authorization_),
+               "Authorization: Bearer %s\r\n", NetworkConfig::DeviceToken);
+      esp_websocket_client_config_t config = {};
+      config.uri = NetworkConfig::WebSocketUrl;
+      config.cert_pem = NetworkConfig::ServerCaCertPem;
+      config.headers = authorization_;
+      config.user_context = this;
+      config.task_stack = 8192;
+      config.buffer_size = 2048;
+      config.ping_interval_sec = 15;
+      config.disable_auto_reconnect = false;
+      websocket_ = esp_websocket_client_init(&config);
+      if (websocket_ != nullptr) {
+        esp_websocket_register_events(websocket_, WEBSOCKET_EVENT_ANY,
+                                      websocketEvent, this);
+        esp_websocket_client_start(websocket_);
+      }
+    }
+    if (websocket_ == nullptr || !esp_websocket_client_is_connected(websocket_)) {
+      continue;
+    }
+    if ((int32_t)(now - nextReportMs) >= 0) {
+      nextReportMs = now + NetworkConfig::ReportIntervalMs;
+      sendTelemetry(now);
+    }
+    if (now - lastHeartbeatMs_ >= 15000) {
+      lastHeartbeatMs_ = now;
+      sendHeartbeat(now);
+    }
+    sendPendingAck();
   }
 }
 
 void TelemetryClient::update(uint32_t now, SystemState &state) {
+  applyPendingCommand(state);
   publish(now, state);
 }
 
@@ -221,7 +296,7 @@ bool TelemetryClient::buildBody(const TelemetrySample &sample,
       "\"target_temperature\":%s,"
       "\"heater_on\":%s,\"heater_pwm\":%lu,"
       "\"light\":%s,\"light_pct\":%u,"
-      "\"fan\":%s,\"valve\":%s,"
+      "\"fan\":%s,\"valve_enabled\":%s,\"valve\":%s,"
       "\"rssi\":%d,"
       "\"heap_free\":%lu,\"heap_min\":%lu,\"heap_int\":%lu}",
       NetworkConfig::DeviceId, (unsigned long)sample.uptimeS,
@@ -236,6 +311,7 @@ bool TelemetryClient::buildBody(const TelemetrySample &sample,
       jsonBool(sample.flags & TelemetryLightEnabled),
       (unsigned)sample.lightBrightness,
       jsonBool(sample.flags & TelemetryFanEnabled),
+      jsonBool(sample.flags & TelemetryValveEnabled),
       jsonBool(sample.flags & TelemetryValveEnabled), (int)diagnostics.rssi,
       (unsigned long)diagnostics.heapFree, (unsigned long)diagnostics.heapMin,
       (unsigned long)diagnostics.heapInt);
@@ -276,4 +352,181 @@ int TelemetryClient::postBody(const char *body, int length) {
   // internal heap for the whole reporting interval.
   http_.end();
   return code;
+}
+
+void TelemetryClient::sendTelemetry(uint32_t now) {
+  const TelemetrySample sample = takeSnapshot();
+  const TelemetryDiagnostics diagnostics = gatherDiagnostics();
+  int length = 0;
+  if (!buildBody(sample, diagnostics, body_, sizeof(body_), length)) return;
+  // The existing formatter already handles NaN correctly; use it as the source
+  // of the JSON payload and only add the WebSocket message type.
+  const char *bodyStart = body_;
+  char wrapped[NetworkConfig::MaxBodyBytes + 16];
+  snprintf(wrapped, sizeof(wrapped), "{\"type\":\"telemetry\",%s", bodyStart + 1);
+  esp_websocket_client_send_text(websocket_, wrapped, strlen(wrapped),
+                                 pdMS_TO_TICKS(1000));
+  (void)now;
+}
+
+void TelemetryClient::sendHeartbeat(uint32_t now) {
+  char message[96];
+  const int length = snprintf(message, sizeof(message),
+                              "{\"type\":\"heartbeat\",\"uptime_s\":%lu}",
+                              (unsigned long)(now / 1000u));
+  esp_websocket_client_send_text(websocket_, message, length,
+                                 pdMS_TO_TICKS(1000));
+}
+
+void TelemetryClient::handleWebsocketEvent(
+    int32_t eventId, esp_websocket_event_data_t *event) {
+  if (eventId == WEBSOCKET_EVENT_CONNECTED) {
+    linkUp_ = true;
+    cloudOk_ = true;
+    char hello[160];
+    snprintf(hello, sizeof(hello),
+             "{\"type\":\"hello\",\"device_id\":\"%s\",\"firmware_version\":\"%s\","
+             "\"uptime_s\":%lu}", NetworkConfig::DeviceId,
+             NetworkConfig::FirmwareVersion, (unsigned long)(millis() / 1000u));
+    esp_websocket_client_send_text(websocket_, hello, strlen(hello),
+                                   pdMS_TO_TICKS(1000));
+    return;
+  }
+  if (eventId == WEBSOCKET_EVENT_DISCONNECTED ||
+      eventId == WEBSOCKET_EVENT_ERROR) {
+    linkUp_ = false;
+    cloudOk_ = false;
+    return;
+  }
+  if (eventId != WEBSOCKET_EVENT_DATA || event == nullptr ||
+      event->data_ptr == nullptr || event->payload_offset != 0) return;
+  char json[1024];
+  const int length = min(event->data_len, (int)sizeof(json) - 1);
+  memcpy(json, event->data_ptr, length);
+  json[length] = '\0';
+  if (strstr(json, "\"type\":\"command\"") == nullptr) return;
+  PendingCommand command;
+  if (!jsonString(json, "command_id", command.id, sizeof(command.id))) return;
+  portENTER_CRITICAL(&commandMux_);
+  const bool duplicate = strcmp(command.id, lastCommandId_) == 0;
+  portEXIT_CRITICAL(&commandMux_);
+  if (duplicate) return;
+  char commandName[32];
+  if (!jsonString(json, "command", commandName, sizeof(commandName))) return;
+  if (strcmp(commandName, "set_temperature") == 0) {
+    float value;
+    if (!jsonNumber(json, "value", value) || value < 10.0f || value > 100.0f) return;
+    command.type = CommandSetTemperature;
+    command.temperature = value;
+  } else if (strcmp(commandName, "set_heater") == 0) {
+    command.type = CommandSetHeater;
+    if (!jsonBoolValue(json, "enabled", command.enabled)) return;
+  } else if (strcmp(commandName, "set_light") == 0) {
+    command.type = CommandSetLight;
+    if (!jsonBoolValue(json, "enabled", command.enabled)) return;
+    float brightness;
+    command.brightness = command.enabled ? 100 : 0;
+    if (jsonNumber(json, "brightness", brightness)) {
+      if (brightness < 0 || brightness > 100) return;
+      command.brightness = (uint8_t)brightness;
+    }
+  } else if (strcmp(commandName, "set_fan") == 0) {
+    command.type = CommandSetFan;
+    if (!jsonBoolValue(json, "enabled", command.enabled)) return;
+  } else if (strcmp(commandName, "set_valve_enabled") == 0) {
+    command.type = CommandSetValve;
+    if (!jsonBoolValue(json, "enabled", command.enabled)) return;
+  } else {
+    return;
+  }
+  portENTER_CRITICAL(&commandMux_);
+  if (!commandPending_) {
+    pendingCommand_ = command;
+    commandPending_ = true;
+  } else {
+    strncpy(ackId_, command.id, sizeof(ackId_) - 1);
+    ackId_[sizeof(ackId_) - 1] = '\0';
+    ackApplied_ = false;
+    snprintf(ackReason_, sizeof(ackReason_), "busy");
+    ackPending_ = true;
+  }
+  portEXIT_CRITICAL(&commandMux_);
+}
+
+void TelemetryClient::applyPendingCommand(SystemState &state) {
+  PendingCommand command;
+  portENTER_CRITICAL(&commandMux_);
+  if (!commandPending_) {
+    portEXIT_CRITICAL(&commandMux_);
+    return;
+  }
+  command = pendingCommand_;
+  commandPending_ = false;
+  portEXIT_CRITICAL(&commandMux_);
+  bool applied = true;
+  switch (command.type) {
+    case CommandSetTemperature:
+      state.setpoint = constrain((double)command.temperature,
+                                 Config::MinimumSetpoint, Config::MaximumSetpoint);
+      break;
+    case CommandSetHeater:
+      state.heatingEnabled = command.enabled;
+      break;
+    case CommandSetLight:
+      state.lightEnabled = command.enabled && command.brightness > 0;
+      state.lightBrightness = command.brightness;
+      break;
+    case CommandSetFan:
+      state.fanEnabled = command.enabled;
+      break;
+    case CommandSetValve:
+      state.valveEnabled = command.enabled;
+      break;
+    default:
+      applied = false;
+      break;
+  }
+  if (applied) {
+    state.settingsDirty = true;
+    state.settingsSaveRequested = true;
+    state.settingsSaveFailed = false;
+    state.markDisplayDirty();
+  }
+  portENTER_CRITICAL(&commandMux_);
+  strncpy(ackId_, command.id, sizeof(ackId_) - 1);
+  ackId_[sizeof(ackId_) - 1] = '\0';
+  strncpy(lastCommandId_, command.id, sizeof(lastCommandId_) - 1);
+  lastCommandId_[sizeof(lastCommandId_) - 1] = '\0';
+  ackApplied_ = applied;
+  snprintf(ackReason_, sizeof(ackReason_), "%s", applied ? "" : "unsupported_command");
+  ackPending_ = true;
+  portEXIT_CRITICAL(&commandMux_);
+}
+
+void TelemetryClient::sendPendingAck() {
+  char id[40];
+  char reason[48];
+  bool applied;
+  portENTER_CRITICAL(&commandMux_);
+  if (!ackPending_) {
+    portEXIT_CRITICAL(&commandMux_);
+    return;
+  }
+  strncpy(id, ackId_, sizeof(id));
+  strncpy(reason, ackReason_, sizeof(reason));
+  applied = ackApplied_;
+  ackPending_ = false;
+  portEXIT_CRITICAL(&commandMux_);
+  char message[180];
+  int length;
+  if (applied) {
+    length = snprintf(message, sizeof(message),
+                       "{\"type\":\"command_ack\",\"command_id\":\"%s\",\"status\":\"applied\"}", id);
+  } else {
+    length = snprintf(message, sizeof(message),
+                       "{\"type\":\"command_ack\",\"command_id\":\"%s\",\"status\":\"rejected\",\"reason\":\"%s\"}",
+                       id, reason);
+  }
+  esp_websocket_client_send_text(websocket_, message, length,
+                                 pdMS_TO_TICKS(1000));
 }

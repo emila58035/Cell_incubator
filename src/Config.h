@@ -53,8 +53,8 @@ constexpr double MaximumSetpoint = 100.0;
 constexpr double EncoderTemperatureStep = 0.1;
 
 constexpr double ConservativeKp = 10.0;
-constexpr double ConservativeKi = 0.5;
-constexpr double ConservativeKd = 0.0;
+constexpr double ConservativeKi = 0.2;
+constexpr double ConservativeKd = 0.1;
 constexpr double AggressiveKp = 20.0;
 constexpr double AggressiveKi = 0.0;
 constexpr double AggressiveKd = 0.0;
