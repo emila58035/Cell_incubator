@@ -17,6 +17,7 @@ SystemState::SystemState()
       lightEnabled(false),
       lightBrightness(0),
       fanEnabled(false),
+      valveEnabled(true),
       valveOpen(false),
       settingsDirty(false),
       settingsSaveRequested(false),

@@ -7,6 +7,7 @@ enum class SettingsItem : uint8_t {
   Light,
   Fan,
   Save,
+  Valve,
   Count,
 };
 
@@ -29,6 +30,7 @@ struct SystemState {
   bool lightEnabled;
   uint8_t lightBrightness;
   bool fanEnabled;
+  bool valveEnabled;
   bool valveOpen;
 
   bool settingsDirty;

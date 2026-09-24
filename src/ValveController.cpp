@@ -9,30 +9,31 @@ void ValveController::begin(SystemState &state) {
 }
 
 void ValveController::update(uint32_t now, SystemState &state) {
-  if(!state.co2Available || !state.co2Valid){
+  // Manual switch off, or no trustworthy CO2 reading: the valve stays closed.
+  if (!state.valveEnabled || !state.co2Available || !state.co2Valid) {
     setValveOpen(state, false);
     lastUpdateTime = now;
+    return;
   }
-  if (state.co2Available && state.co2Valid) {
-    if(state.co2 < Config::ValveCO2threshold1) {
-        if(now - lastUpdateTime < Config::ValveIntervalMs1) {
-          return;
-        }
-        else pulseValve(now, Config::ValveOpenDurationMs_long, state);
-    } else if(state.co2 < Config::ValveCO2threshold2){
-        if(now - lastUpdateTime < Config::ValveIntervalMs2) {
-          return;
-        }
-        else pulseValve(now, Config::ValveOpenDurationMs_short, state);
-    } else if(state.co2 < Config::ValveCO2threshold3){
-        if(now - lastUpdateTime < Config::ValveIntervalMs3) {
-          return;
-        }
-        else pulseValve(now, Config::ValveOpenDurationMs_short, state);
-    } else {
-        setValveOpen(state, false);
-        lastUpdateTime = now;
+
+  if (state.co2 < Config::ValveCO2threshold1) {
+    if (now - lastUpdateTime < Config::ValveIntervalMs1) {
+      return;
     }
+    pulseValve(now, Config::ValveOpenDurationMs_long, state);
+  } else if (state.co2 < Config::ValveCO2threshold2) {
+    if (now - lastUpdateTime < Config::ValveIntervalMs2) {
+      return;
+    }
+    pulseValve(now, Config::ValveOpenDurationMs_short, state);
+  } else if (state.co2 < Config::ValveCO2threshold3) {
+    if (now - lastUpdateTime < Config::ValveIntervalMs3) {
+      return;
+    }
+    pulseValve(now, Config::ValveOpenDurationMs_short, state);
+  } else {
+    setValveOpen(state, false);
+    lastUpdateTime = now;
   }
 }
 

@@ -83,6 +83,7 @@ void InputManager::update(uint32_t now, SystemState &state) {
         break;
       }
       case SettingsItem::Fan:
+      case SettingsItem::Valve:
       case SettingsItem::Save:
       case SettingsItem::Count:
         break;
@@ -131,6 +132,11 @@ void InputManager::update(uint32_t now, SystemState &state) {
                         state.fanEnabled ? "ON" : "OFF");
           state.settingsDirty = true;
           state.settingsSaveFailed = false;
+          break;
+        case SettingsItem::Valve:
+          state.valveEnabled = !state.valveEnabled;
+          Serial.printf("[INPUT] Valve=%s\n",
+                        state.valveEnabled ? "AUTO" : "OFF");
           break;
         case SettingsItem::Save:
           state.settingsSaveRequested = true;

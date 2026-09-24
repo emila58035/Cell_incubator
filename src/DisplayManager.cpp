@@ -182,9 +182,9 @@ void renderLayout(Display &display, const SystemState &state, int originX,
   display.fillRoundRect(x(154), y(ControlRow2Y + 22), power * 27 / 100, 4, 2,
                         TFT_ORANGE);
 
-  drawControl(SettingsItem::Count, 208, ControlRow2Y, "VALVE",
-              onOff(state.valveOpen), state.valveOpen ? TFT_GREEN : TFT_WHITE,
-              state.valveOpen);
+  drawControl(SettingsItem::Valve, 208, ControlRow2Y, "VALVE",
+              state.valveEnabled ? "AUTO" : "OFF",
+              state.valveEnabled ? TFT_GREEN : TFT_WHITE, state.valveOpen);
 
   display.setTextDatum(ML_DATUM);
   display.setTextColor(MutedColor, ScreenColor);
