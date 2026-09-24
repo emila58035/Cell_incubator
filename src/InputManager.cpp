@@ -137,6 +137,8 @@ void InputManager::update(uint32_t now, SystemState &state) {
           state.valveEnabled = !state.valveEnabled;
           Serial.printf("[INPUT] Valve=%s\n",
                         state.valveEnabled ? "AUTO" : "OFF");
+          state.settingsDirty = true;
+          state.settingsSaveFailed = false;
           break;
         case SettingsItem::Save:
           state.settingsSaveRequested = true;

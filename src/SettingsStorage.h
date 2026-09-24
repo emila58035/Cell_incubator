@@ -15,6 +15,7 @@ class SettingsStorage {
     uint8_t lightBrightness;
     bool lightEnabled;
     bool fanEnabled;
+    bool valveEnabled;
   };
 
   static Snapshot capture(const SystemState &state);

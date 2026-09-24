@@ -10,11 +10,13 @@ namespace {
 constexpr char StorageNamespace[] = "incubator";
 constexpr char StorageKey[] = "settings";
 constexpr uint32_t StorageMagic = 0x43494E43;
-constexpr uint16_t StorageVersion = 2;
+constexpr uint16_t StorageVersion = 3;
+constexpr uint16_t ValveStorageVersion = 3;
 constexpr uint16_t LegacyStorageVersion = 1;
 
 constexpr uint8_t LightEnabledFlag = 1 << 0;
 constexpr uint8_t FanEnabledFlag = 1 << 1;
+constexpr uint8_t ValveEnabledFlag = 1 << 3;
 constexpr uint8_t LegacyFanEnabledFlag = 1 << 2;
 
 struct StoredSettings {
@@ -71,6 +73,7 @@ SettingsStorage::Snapshot SettingsStorage::capture(const SystemState &state) {
   snapshot.lightBrightness = min<uint8_t>(state.lightBrightness, 100);
   snapshot.lightEnabled = state.lightEnabled && snapshot.lightBrightness > 0;
   snapshot.fanEnabled = state.fanEnabled;
+  snapshot.valveEnabled = state.valveEnabled;
   return snapshot;
 }
 
@@ -113,6 +116,10 @@ bool SettingsStorage::load(SystemState &state) {
                               ? LegacyFanEnabledFlag
                               : FanEnabledFlag;
   state.fanEnabled = (stored.flags & fanFlag) != 0;
+  // Records written before v3 carry no valve switch bit; they keep the default.
+  if (stored.version >= ValveStorageVersion) {
+    state.valveEnabled = (stored.flags & ValveEnabledFlag) != 0;
+  }
   Serial.println("[SETTINGS] Loaded from NVS");
   return true;
 }
@@ -124,7 +131,8 @@ bool SettingsStorage::save(const Snapshot &settings) {
   stored.setpointTenths = settings.setpointTenths;
   stored.lightBrightness = settings.lightBrightness;
   stored.flags = (settings.lightEnabled ? LightEnabledFlag : 0) |
-                 (settings.fanEnabled ? FanEnabledFlag : 0);
+                 (settings.fanEnabled ? FanEnabledFlag : 0) |
+                 (settings.valveEnabled ? ValveEnabledFlag : 0);
   stored.checksum = calculateChecksum(stored);
 
   Preferences preferences;
@@ -148,8 +156,9 @@ bool SettingsStorage::save(const Snapshot &settings) {
 void SettingsStorage::logSettings(const char *event,
                                   const Snapshot &settings) {
   Serial.printf(
-      "[SETTINGS] %s: setpoint=%.1f C, light=%s/%u%%, fan=%s\n",
+      "[SETTINGS] %s: setpoint=%.1f C, light=%s/%u%%, fan=%s, valve=%s\n",
       event, settings.setpointTenths / 10.0,
       settings.lightEnabled ? "ON" : "OFF", settings.lightBrightness,
-      settings.fanEnabled ? "ON" : "OFF");
+      settings.fanEnabled ? "ON" : "OFF",
+      settings.valveEnabled ? "AUTO" : "OFF");
 }
