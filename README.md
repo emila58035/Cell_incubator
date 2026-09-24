@@ -23,8 +23,8 @@
 |---|---|---|
 | 温湿度传感器 AHT20 | SDA=1, SCL=2, ADDR→0x38 | I2C；SHT20/SHT30 驱动停用在 `src/SHT20Sensor.*`、`src/SHT30Sensor.*` |
 | CO₂ 传感器 SenseAir S8 | RX=5, TX=4 (UART1) | 9600 bps，非阻塞轮询 |
-| 加热 PWM | GPIO 39 | 1 kHz / 8 bit / 最大 255，不反相 |
-| 照明 PWM | GPIO 38 | 同上 |
+| 加热 PWM | GPIO 39 | 2 kHz / 8 bit / 最大 255，不反相 |
+| 照明 PWM | GPIO 38 | 1 kHz / 8 bit / 最大 255，不反相 |
 | 风扇 | GPIO 47 | 数字输出 |
 | 阀门 | GPIO 48 | 数字输出，三段 CO₂ 阈值逻辑 |
 | 显示 TFT ST7789 240×320 | MOSI=21, SCLK=40, CS=16, DC=17, BL=15 | 由 `src/User_Setup.h` + `build_flags` 强制加载；实测 sprite DMA 分配成功，面板实际点亮未验证 |
@@ -39,7 +39,7 @@
 |---|---|
 | 温湿度 | AHT20（I2C 0x38），典型精度 ±0.3 ℃ / ±2% RH。故障时 `temperatureValid`/`humidityValid` 置 false |
 | CO₂ | SenseAir S8，UART1 非阻塞轮询，原值 ×10 存入 `SystemState.co2`（物理单位未确认，服务器不做换算） |
-| 加热控制 | 双增益 PID：带内（距目标 < 3 ℃）Kp=10/Ki=0.1，带外 Kp=20/Ki=0。PWM 输出 0–255(ledc 1 kHz)，默认目标 37 ℃。开关仅由用户输入；传感器故障暂停输出但不关闭开关，恢复后自动续控 |
+| 加热控制 | 双增益 PID：带内（距目标 < 3 ℃）Kp=10/Ki=0.5，带外 Kp=20/Ki=0。PWM 输出 0–255(ledc 2 kHz)，默认目标 37 ℃。开关仅由用户输入；传感器故障暂停输出但不关闭开关，恢复后自动续控 |
 | 阀门 | 三段阈值（25000 / 40000 / 48000，单位同 CO₂），开阀时长分长短两档 |
 | 风扇 + 照明 | 各独立控制，照明 PWM 可调亮度 |
 | 显示 | TFT_eSPI，三列气候指标布局，精灵图 DMA 缓冲，面板实时脏标记驱动刷新 |
