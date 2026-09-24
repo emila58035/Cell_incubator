@@ -6,7 +6,7 @@
 
 // Synthetic sensor source for development on a board with no sensors attached.
 //
-// It stands in for SHT20Sensor and SenseAirS8Sensor and writes into SystemState
+// It stands in for AHT20Sensor and SenseAirS8Sensor and writes into SystemState
 // through the very same setters they use, so every layer above stays real: the
 // PID, the valve logic, the display and the telemetry payload are all produced
 // by the production code. Only the sensor readings are fabricated.
@@ -19,7 +19,7 @@
 //   * These numbers are not a plant model. They exist so that the telemetry
 //     fields stay mutually consistent and the server-side alert paths all get
 //     exercised. They say nothing about PID tuning, which still needs a real
-//     SHT20 (docs/REMOTE_ACCESS.md section 7.3).
+//     AHT20 (docs/REMOTE_ACCESS.md section 7.3).
 //
 // The 8 phase scenario repeats every SIM_CYCLE_MS and injects every failure
 // mode the payload can express, in the same domain as the real drivers:

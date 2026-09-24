@@ -6,32 +6,14 @@
 namespace Config {
 constexpr uint32_t DebugBaudRate = 115200;
 
-constexpr int ShtSdaPin = 1;
-constexpr int ShtSclPin = 2;
-// The SHT2x family has no address strap: the SHT20 answers at I2C 0x40, and the
-// robtillaart/SHT2x driver hardcodes that address internally.
-constexpr uint32_t ShtSampleIntervalMs = 1000;
-constexpr uint32_t ShtReconnectIntervalMs = 5000;
-// A run of failed samples this long is treated as a real disconnection; a
-// shorter run only invalidates the reading for that cycle.
-constexpr uint8_t ShtMaximumConsecutiveErrors = 3;
-// The library's read() gates readiness on the datasheet maxima (85 ms for a
-// 14-bit temperature, 29 ms for a 12-bit humidity) with no margin. On this
-// hardware that is too early: the read then dies on the I2C driver's ~50 ms
-// timeout, and it only succeeds on the following cycle because the abandoned
-// measurement has completed by then - which shows up as a strict alternation
-// between success and failure. These waits are deliberately above the maxima.
-constexpr uint32_t ShtTemperatureConversionMs = 150;
-constexpr uint32_t ShtHumidityConversionMs = 80;
-// The SHT2x needs up to 15 ms after a soft reset or power-up before it accepts
-// the next command, and SHT2x::begin() returns immediately after issuing that
-// reset. Sampling without this gap makes the first measurement NACK with
-// SHT2x_ERR_WRITECMD, and because every reconnect calls begin() again the
-// failure repeats forever. 50 ms is the datasheet minimum plus margin.
-constexpr uint32_t ShtResetRecoveryMs = 50;
+constexpr int AhtSdaPin = 1;
+constexpr int AhtSclPin = 2;
+constexpr uint8_t AhtAddress = 0x38;
+constexpr uint32_t AhtSampleIntervalMs = 1000;
+constexpr uint32_t AhtReconnectIntervalMs = 5000;
 
 constexpr int HeaterPwmPin = 39;
-constexpr uint32_t HeaterPwmFrequency = 1000;
+constexpr uint32_t HeaterPwmFrequency = 2000;
 constexpr uint8_t HeaterPwmResolution = 8;
 constexpr uint32_t HeaterPwmMaximum = 255;
 constexpr bool HeaterPwmActiveLow = false;
@@ -71,7 +53,7 @@ constexpr double MaximumSetpoint = 100.0;
 constexpr double EncoderTemperatureStep = 0.1;
 
 constexpr double ConservativeKp = 10.0;
-constexpr double ConservativeKi = 0.1;
+constexpr double ConservativeKi = 0.5;
 constexpr double ConservativeKd = 0.0;
 constexpr double AggressiveKp = 20.0;
 constexpr double AggressiveKi = 0.0;
