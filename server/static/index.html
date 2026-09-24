@@ -60,6 +60,14 @@
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
   th { color: var(--dim); font-weight: 500; font-size: 12px; }
   .empty { color: var(--dim); font-size: 13px; padding: 8px 0; }
+  .controls { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .controls form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .controls input { width: 100px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); padding: 5px 7px; border-radius: 5px; }
+  .controls button, .download { background: #1b2c40; color: var(--fg); border: 1px solid var(--acc); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .controls button:disabled, .download:disabled { opacity: .45; cursor: not-allowed; }
+  .control-status { color: var(--dim); font-size: 12px; min-height: 18px; margin-top: 6px; }
+  .chartwrap { position: relative; }
+  .tooltip { position: absolute; display: none; pointer-events: none; background: #0b1016; border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; white-space: nowrap; font-size: 12px; z-index: 2; }
   footer { color: var(--dim); font-size: 11.5px; margin: 18px 0 8px; line-height: 1.7; }
   .hr { color: var(--line); }
 </style>
@@ -101,6 +109,18 @@
 
   <h2>执行器</h2>
   <div class="row" id="actuators"></div>
+  <h2>远程控制</h2>
+  <div class="controls">
+    <form id="tempControl"><label>目标温度 <input id="tempInput" type="number" min="10" max="100" step="0.1"> ℃</label><button>设置</button></form>
+    <form id="switchControls">
+      <button type="button" data-command="set_heater" data-target="heaterCtl">加热</button>
+      <button type="button" data-command="set_light" data-target="lightCtl">照明</button>
+      <label>亮度 <input id="brightnessInput" type="number" min="0" max="100" step="1"> %</label>
+      <button type="button" data-command="set_fan" data-target="fanCtl">风扇</button>
+      <button type="button" data-command="set_valve_enabled" data-target="valveCtl">阀门自动</button>
+    </form>
+    <div class="control-status" id="controlStatus"></div>
+  </div>
 
   <h2>趋势</h2>
   <div class="chartbox">
@@ -108,11 +128,11 @@
       <span>温度（实线）与设定值（虚线）</span>
       <span class="ranges" id="ranges"></span>
     </div>
-    <canvas id="chartTemp"></canvas>
+    <div class="chartwrap"><canvas id="chartTemp"></canvas><div class="tooltip" id="tipTemp"></div></div>
   </div>
   <div class="chartbox">
-    <div class="head"><span>CO₂（设备单位，与屏幕一致）与加热功率 %</span></div>
-    <canvas id="chartCo2"></canvas>
+    <div class="head"><span>CO₂（设备单位，与屏幕一致）</span><button class="download" id="downloadCsv">下载 CSV</button></div>
+    <div class="chartwrap"><canvas id="chartCo2"></canvas><div class="tooltip" id="tipCo2"></div></div>
   </div>
 
   <h2>告警（近 24 小时）</h2>
@@ -128,7 +148,7 @@
 <script>
 "use strict";
 const RANGES = [["1 小时", 1], ["6 小时", 6], ["24 小时", 24], ["7 天", 168]];
-const state = { device: null, hours: 1, devices: [], timer: null, ticks: 0 };
+const state = { device: null, hours: 1, devices: [], timer: null, ticks: 0, latest: null };
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 1) => (v === null || v === undefined || !isFinite(v)) ? "--" : Number(v).toFixed(d);
@@ -193,9 +213,11 @@ function draw(canvas, points, series, opts) {
     ctx.fillStyle = "#8a97a6"; ctx.font = "12px sans-serif";
     ctx.fillText("暂无数据", x0, (y0 + y1) / 2); return;
   }
-  let lo = Math.min.apply(null, values), hi = Math.max.apply(null, values);
+  let lo = opts.min === undefined ? Math.min.apply(null, values) : opts.min;
+  let hi = opts.max === undefined ? Math.max.apply(null, values) : opts.max;
   const span = (hi - lo) || Math.max(1, Math.abs(hi) * 0.1);
-  lo -= span * 0.15; hi += span * 0.15;
+  if (opts.min === undefined) lo -= span * 0.15;
+  if (opts.max === undefined) hi += span * 0.15;
 
   const ts = points.map((p) => p.recv_ts);
   const t0 = Math.min.apply(null, ts), t1 = Math.max.apply(null, ts);
@@ -229,6 +251,26 @@ function draw(canvas, points, series, opts) {
     }
     ctx.stroke(); ctx.setLineDash([]);
   }
+  canvas._plot = { points, series, x0, x1, t0, t1 };
+}
+
+function bindTooltip(canvas, tooltip) {
+  canvas.addEventListener("mousemove", (ev) => {
+    const plot = canvas._plot; if (!plot || !plot.points.length) return;
+    const rect = canvas.getBoundingClientRect(), x = ev.clientX - rect.left;
+    const t = plot.t0 + (x - plot.x0) / ((plot.x1 - plot.x0) || 1) * (plot.t1 - plot.t0);
+    let nearest = plot.points[0];
+    for (const point of plot.points) if (Math.abs(point.recv_ts - t) < Math.abs(nearest.recv_ts - t)) nearest = point;
+    const rows = plot.series.map((s) => {
+      const value = nearest[s.key];
+      return value === null || value === undefined ? "" : s.label + "：" + fmt(value, s.decimals ?? 1);
+    }).filter(Boolean);
+    tooltip.innerHTML = new Date(nearest.recv_ts * 1000).toLocaleString("zh-CN", { hour12: false }) + "<br>" + rows.join("<br>");
+    tooltip.style.display = "block";
+    tooltip.style.left = Math.min(Math.max(4, x + 8), rect.width - tooltip.offsetWidth - 4) + "px";
+    tooltip.style.top = "6px";
+  });
+  canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
 }
 
 async function loadHistory() {
@@ -237,15 +279,40 @@ async function loadHistory() {
     const data = await api("/api/v1/devices/" + encodeURIComponent(state.device) +
                            "/history?hours=" + state.hours);
     draw($("chartTemp"), data.points, [
-      { key: "target_temperature", color: "#4aa8ff", width: 1.2, dash: [5, 4] },
-      { key: "temperature", color: "#e5544b", width: 1.8 },
+      { key: "target_temperature", label: "设定值", color: "#4aa8ff", width: 1.2, dash: [5, 4], decimals: 1 },
+      { key: "temperature", label: "温度", color: "#e5544b", width: 1.8, decimals: 2 },
     ], { decimals: 1 });
     draw($("chartCo2"), data.points, [
-      { key: "heater_pwm", color: "#e0a53a", width: 1.4 },
-      { key: "co2", color: "#35c07a", width: 1.4 },
-    ], { decimals: 0 });
+      { key: "co2", label: "CO₂", color: "#35c07a", width: 1.4, decimals: 0 },
+    ], { decimals: 0, min: 0, max: 100000 });
   } catch (err) {
     console.warn("history failed", err);
+  }
+}
+
+async function sendCommand(command, params) {
+  if (!state.device) return;
+  const status = $("controlStatus");
+  status.textContent = "命令发送中…";
+  try {
+    const response = await fetch("/api/v1/devices/" + encodeURIComponent(state.device) + "/commands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "dashboard" },
+      body: JSON.stringify({ command, params })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const accepted = await response.json();
+    const deadline = Date.now() + 65000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const result = await api("/api/v1/devices/" + encodeURIComponent(state.device) + "/commands/" + accepted.command_id);
+      if (result.status === "applied") { status.textContent = "设备已执行"; refresh(); return; }
+      if (result.status === "rejected" || result.status === "expired") { status.textContent = "设备未执行：" + result.status; return; }
+    }
+    status.textContent = "命令超时";
+  } catch (err) {
+    status.textContent = "命令失败";
+    console.warn("command failed", err);
   }
 }
 
@@ -269,6 +336,7 @@ async function refresh() {
     }
 
     const L = await api("/api/v1/devices/" + encodeURIComponent(state.device) + "/latest");
+    state.latest = L;
     const bar = $("bar");
     bar.className = L.online ? "online" : "offline";
     $("state").textContent = L.online ? "在线" : "离线 · 数据已过期";
@@ -291,6 +359,20 @@ async function refresh() {
         : (L.heap_free === null ? "--" : Math.round(L.heap_free / 1024) + " KB")) +
       " &nbsp;·&nbsp; fw " + (L.firmware_version || "--");
     $("offlineAfter").textContent = L.offline_after_s;
+    $("tempInput").value = L.target_temperature ?? "";
+    $("brightnessInput").value = L.light_pct ?? 0;
+    for (const button of document.querySelectorAll("#switchControls button")) button.disabled = !L.online;
+    $("tempInput").disabled = !L.online;
+    $("brightnessInput").disabled = !L.online;
+    const controlLabels = {
+      heaterCtl: L.heater_on ? "关闭加热" : "开启加热",
+      lightCtl: L.light ? "关闭照明" : "开启照明",
+      fanCtl: L.fan ? "关闭风扇" : "开启风扇",
+      valveCtl: L.valve_enabled ? "关闭阀门自动" : "开启阀门自动"
+    };
+    for (const button of document.querySelectorAll("#switchControls button")) {
+      button.textContent = controlLabels[button.dataset.target] || button.textContent;
+    }
 
     renderActuators(L);
     await api("/api/v1/devices/" + encodeURIComponent(state.device) + "/alerts?hours=24")
@@ -308,6 +390,23 @@ async function refresh() {
 }
 
 (function init() {
+  bindTooltip($("chartTemp"), $("tipTemp"));
+  bindTooltip($("chartCo2"), $("tipCo2"));
+  $("tempControl").addEventListener("submit", (ev) => {
+    ev.preventDefault(); sendCommand("set_temperature", { value: Number($("tempInput").value) });
+  });
+  $("switchControls").addEventListener("click", (ev) => {
+    const button = ev.target.closest("button"); if (!button || button.disabled) return;
+    const current = state.latest || {};
+    const currentValue = { heaterCtl: !!current.heater_on, lightCtl: !!current.light, fanCtl: !!current.fan, valveCtl: !!current.valve_enabled }[button.dataset.target];
+    const enabled = !currentValue;
+    const params = button.dataset.command === "set_light"
+      ? { enabled, brightness: Number($("brightnessInput").value || 100) } : { enabled };
+    sendCommand(button.dataset.command, params);
+  });
+  $("downloadCsv").addEventListener("click", () => {
+    if (state.device) window.location.href = "/api/v1/devices/" + encodeURIComponent(state.device) + "/export.csv?hours=" + state.hours;
+  });
   $("ranges").innerHTML = RANGES.map(([label, hours], i) =>
     '<button data-hours="' + hours + '"' + (i === 0 ? ' class="active"' : "") + ">" + label + "</button>").join("");
   $("ranges").addEventListener("click", (ev) => {

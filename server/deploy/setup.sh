@@ -68,6 +68,7 @@ install -d -o incubator -g incubator -m 0755 "$APP_DIR/static"
 install -o incubator -g incubator -m 0644 "$SRC/static/index.html" "$APP_DIR/static/index.html"
 install -d -o incubator -g incubator -m 0755 "$APP_DIR/tests"
 install -o incubator -g incubator -m 0644 "$SRC/tests/test_api_smoke.py" "$APP_DIR/tests/test_api_smoke.py"
+install -o incubator -g incubator -m 0644 "$SRC/tests/test_websocket_control.py" "$APP_DIR/tests/test_websocket_control.py"
 echo "installed app.py, schema.sql, static/index.html, tests/"
 
 log "virtualenv and dependencies"
@@ -79,13 +80,13 @@ else
 fi
 "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check --upgrade pip \
   || echo "pip self-upgrade skipped (not required, continuing)"
-if ! "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check fastapi uvicorn; then
+if ! "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check fastapi uvicorn websockets; then
   echo "PyPI not reachable directly; retrying with the Tsinghua mirror"
   "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple fastapi uvicorn
+    -i https://pypi.tuna.tsinghua.edu.cn/simple fastapi uvicorn websockets
 fi
 chown -R incubator:incubator "$APP_DIR/venv"
-"$APP_DIR/venv/bin/python" -c 'import fastapi, uvicorn; print("fastapi", fastapi.__version__, "/ uvicorn", uvicorn.__version__)'
+"$APP_DIR/venv/bin/python" -c 'import fastapi, uvicorn, websockets; print("fastapi", fastapi.__version__, "/ uvicorn", uvicorn.__version__, "/ websockets", websockets.__version__)'
 
 log "device token"
 if [ -s "$TOKEN_FILE" ]; then

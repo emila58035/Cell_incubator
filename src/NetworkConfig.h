@@ -21,6 +21,9 @@
 #ifndef SECRET_SERVER_URL
 #define SECRET_SERVER_URL ""
 #endif
+#ifndef SECRET_SERVER_WS_URL
+#define SECRET_SERVER_WS_URL ""
+#endif
 #ifndef SECRET_DEVICE_ID
 #define SECRET_DEVICE_ID ""
 #endif
@@ -45,6 +48,7 @@ constexpr char FirmwareVersion[] = "0.1.0";
 constexpr char WifiSsid[] = SECRET_WIFI_SSID;
 constexpr char WifiPassword[] = SECRET_WIFI_PASS;
 constexpr char ServerUrl[] = SECRET_SERVER_URL;
+constexpr char WebSocketUrl[] = SECRET_SERVER_WS_URL;
 constexpr char DeviceId[] = SECRET_DEVICE_ID;
 constexpr char DeviceToken[] = SECRET_DEVICE_TOKEN;
 

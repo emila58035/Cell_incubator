@@ -25,21 +25,24 @@ Environment:
 
 from __future__ import annotations
 
+import csv
 import hmac
+import io
 import json
 import os
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 APP_DIR = Path(__file__).resolve().parent
 
 DB_PATH = Path(os.environ.get("INCUBATOR_DB") or "/var/lib/incubator/data.db")
@@ -53,6 +56,11 @@ LOW_HEAP_BYTES = int(os.environ.get("INCUBATOR_LOW_HEAP") or 40960)
 DEVICE_ID_MAX = 64
 HEAP_MAX = 8 * 1024 * 1024
 HISTORY_POINT_LIMIT = 2000
+COMMAND_TTL_S = 60
+COMMAND_TYPES = {"set_temperature", "set_heater", "set_light", "set_fan", "set_valve_enabled"}
+WS_HEARTBEAT_TIMEOUT_S = 45
+ws_clients: dict[str, WebSocket] = {}
+ws_seen: dict[str, int] = {}
 
 
 # --------------------------------------------------------------------------
@@ -86,12 +94,38 @@ class TelemetryIn(BaseModel):
     light: Optional[bool] = None
     light_pct: Optional[int] = Field(default=None, ge=0, le=100)
     fan: Optional[bool] = None
+    valve_enabled: Optional[bool] = None
     valve: Optional[bool] = None
 
     rssi: Optional[int] = Field(default=None, ge=-120, le=0)
     heap_free: Optional[int] = Field(default=None, ge=0, le=HEAP_MAX)
     heap_min: Optional[int] = Field(default=None, ge=0, le=HEAP_MAX)
     heap_int: Optional[int] = Field(default=None, ge=0, le=HEAP_MAX)
+
+
+class CommandIn(BaseModel):
+    command: str = Field(min_length=1, max_length=32)
+    params: dict[str, Any] = Field(default_factory=dict)
+    expires_in: int = Field(default=COMMAND_TTL_S, ge=5, le=3600)
+
+
+def _command_valid(command: str, params: dict[str, Any]) -> Optional[str]:
+    if command not in COMMAND_TYPES:
+        return "unknown_command"
+    if command == "set_temperature":
+        value = params.get("value")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not 10 <= float(value) <= 100:
+            return "temperature_out_of_range"
+    elif command == "set_light":
+        if not isinstance(params.get("enabled"), bool):
+            return "enabled_must_be_boolean"
+        brightness = params.get("brightness", 100 if params["enabled"] else 0)
+        if not isinstance(brightness, int) or isinstance(brightness, bool) or not 0 <= brightness <= 100:
+            return "brightness_out_of_range"
+    elif command in {"set_heater", "set_fan", "set_valve_enabled"}:
+        if not isinstance(params.get("enabled"), bool):
+            return "enabled_must_be_boolean"
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -166,6 +200,10 @@ def db() -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{DB_PATH}?mode=rw", uri=True, timeout=5.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(telemetry)")}
+    if "valve_enabled" not in columns:
+        with conn:
+            conn.execute("ALTER TABLE telemetry ADD COLUMN valve_enabled INTEGER")
     return conn
 
 
@@ -173,12 +211,12 @@ INSERT_TELEMETRY = """
 INSERT INTO telemetry (
   device_id, recv_ts, uptime_s, fw_version,
   temperature, temperature_ok, humidity, humidity_ok, co2, co2_ok, co2_available,
-  target_temperature, heater_on, heater_pwm, light, light_pct, fan, valve,
+  target_temperature, heater_on, heater_pwm, light, light_pct, fan, valve_enabled, valve,
   rssi, heap_free, heap_min, heap_int
 ) VALUES (
   :device_id, :recv_ts, :uptime_s, :fw_version,
   :temperature, :temperature_ok, :humidity, :humidity_ok, :co2, :co2_ok, :co2_available,
-  :target_temperature, :heater_on, :heater_pwm, :light, :light_pct, :fan, :valve,
+  :target_temperature, :heater_on, :heater_pwm, :light, :light_pct, :fan, :valve_enabled, :valve,
   :rssi, :heap_free, :heap_min, :heap_int
 )
 """
@@ -219,7 +257,6 @@ def record_alerts(
                 (device_id, int(prev["recv_ts"]), now, f"silent for {gap}s"),
             )
 
-    # 2) Sensor validity transitions (fault raised on open, cleared on recovery).
     for column, current, name in (
         ("temperature_ok", payload.temperature_ok, "temperature"),
         ("humidity_ok", payload.humidity_ok, "humidity"),
@@ -227,9 +264,6 @@ def record_alerts(
     ):
         if current is None:
             continue
-        # SQLite hands back 0/1 for INTEGER columns, never True/False, and
-        # `0 is False` is False in Python. Compare truthiness, not identity,
-        # or a fault would be raised and then never cleared.
         previous = None if prev is None else prev[column]
         was_ok = None if previous is None else bool(previous)
         if current is False and was_ok is not False:
@@ -245,16 +279,11 @@ def record_alerts(
                 (now, device_id, name),
             )
 
-    # 3) Heap floor. heap_int (internal RAM only) is preferred when reported,
-    # because getFreeHeap() also counts PSRAM on this board and would hide an
-    # internal-heap leak.
     heap = payload.heap_int if payload.heap_int is not None else payload.heap_free
     if heap is not None:
         prev_heap = None
         if prev is not None:
-            prev_heap = (
-                prev["heap_int"] if prev["heap_int"] is not None else prev["heap_free"]
-            )
+            prev_heap = prev["heap_int"] if prev["heap_int"] is not None else prev["heap_free"]
         low_now = heap < LOW_HEAP_BYTES
         low_before = prev_heap is not None and prev_heap < LOW_HEAP_BYTES
         if low_now and not low_before:
@@ -269,6 +298,47 @@ def record_alerts(
                 " AND kind = 'low_heap' AND cleared_ts IS NULL",
                 (now, device_id),
             )
+
+
+def _store_telemetry(payload: TelemetryIn, authed_device: str) -> None:
+    if payload.device_id != authed_device:
+        raise HTTPException(403, "device_id does not match the presented token")
+    now = int(time.time())
+    conn = db()
+    try:
+        with conn:
+            prev = conn.execute(
+                "SELECT * FROM telemetry WHERE device_id = ? ORDER BY recv_ts DESC, id DESC LIMIT 1",
+                (authed_device,),
+            ).fetchone()
+            conn.execute(
+                INSERT_TELEMETRY,
+                {
+                    "device_id": authed_device, "recv_ts": now,
+                    "uptime_s": payload.uptime_s, "fw_version": payload.firmware_version,
+                    "temperature": payload.temperature, "temperature_ok": _flag(payload.temperature_ok),
+                    "humidity": payload.humidity, "humidity_ok": _flag(payload.humidity_ok),
+                    "co2": payload.co2, "co2_ok": _flag(payload.co2_ok),
+                    "co2_available": _flag(payload.co2_available),
+                    "target_temperature": payload.target_temperature,
+                    "heater_on": _flag(payload.heater_on), "heater_pwm": payload.heater_pwm,
+                    "light": _flag(payload.light), "light_pct": payload.light_pct,
+                    "fan": _flag(payload.fan), "valve_enabled": _flag(payload.valve_enabled),
+                    "valve": _flag(payload.valve),
+                    "rssi": payload.rssi, "heap_free": payload.heap_free,
+                    "heap_min": payload.heap_min, "heap_int": payload.heap_int,
+                },
+            )
+            conn.execute(UPSERT_DEVICE, {
+                "device_id": authed_device,
+                "label": token_map().get(authed_device, {}).get("label"),
+                "now": now, "fw_version": payload.firmware_version,
+            })
+            record_alerts(conn, authed_device, now, payload, prev)
+    finally:
+        conn.close()
+    ws_seen[authed_device] = now
+
 
 
 # --------------------------------------------------------------------------
@@ -310,59 +380,169 @@ async def validation_error(_request: Request, exc: RequestValidationError) -> JS
 @app.post("/api/v1/telemetry", status_code=204, response_class=Response)
 def ingest(payload: TelemetryIn, authed_device: str = Depends(authenticate)) -> Response:
     """Store one sample. The device only looks at the status code."""
-    if payload.device_id != authed_device:
-        raise HTTPException(403, "device_id does not match the presented token")
+    _store_telemetry(payload, authed_device)
+    return Response(status_code=204)
 
+
+def _token_from_websocket(websocket: WebSocket) -> Optional[str]:
+    header = websocket.headers.get("authorization")
+    if not header or not header.lower().startswith("bearer "):
+        return None
+    presented = header[7:].strip()
+    matched = None
+    for device_id, meta in token_map().items():
+        if hmac.compare_digest(presented, meta["token"]):
+            matched = device_id
+    return matched
+
+
+async def _send_pending_commands(device_id: str, websocket: WebSocket) -> None:
     now = int(time.time())
     conn = db()
     try:
+        rows = conn.execute(
+            "SELECT command_id, command, params_json, expires_ts FROM remote_commands "
+            "WHERE device_id = ? AND status IN ('queued', 'sent') AND expires_ts > ? "
+            "ORDER BY created_ts LIMIT 20", (device_id, now)
+        ).fetchall()
         with conn:
-            prev = conn.execute(
-                "SELECT * FROM telemetry WHERE device_id = ?"
-                " ORDER BY recv_ts DESC, id DESC LIMIT 1",
-                (authed_device,),
-            ).fetchone()
-
             conn.execute(
-                INSERT_TELEMETRY,
-                {
-                    "device_id": authed_device,
-                    "recv_ts": now,
-                    "uptime_s": payload.uptime_s,
-                    "fw_version": payload.firmware_version,
-                    "temperature": payload.temperature,
-                    "temperature_ok": _flag(payload.temperature_ok),
-                    "humidity": payload.humidity,
-                    "humidity_ok": _flag(payload.humidity_ok),
-                    "co2": payload.co2,
-                    "co2_ok": _flag(payload.co2_ok),
-                    "co2_available": _flag(payload.co2_available),
-                    "target_temperature": payload.target_temperature,
-                    "heater_on": _flag(payload.heater_on),
-                    "heater_pwm": payload.heater_pwm,
-                    "light": _flag(payload.light),
-                    "light_pct": payload.light_pct,
-                    "fan": _flag(payload.fan),
-                    "valve": _flag(payload.valve),
-                    "rssi": payload.rssi,
-                    "heap_free": payload.heap_free,
-                    "heap_min": payload.heap_min,
-                    "heap_int": payload.heap_int,
-                },
+                "UPDATE remote_commands SET status = 'expired' WHERE device_id = ? "
+                "AND status IN ('queued', 'sent') AND expires_ts <= ?", (device_id, now)
             )
-            conn.execute(
-                UPSERT_DEVICE,
-                {
-                    "device_id": authed_device,
-                    "label": token_map().get(authed_device, {}).get("label"),
-                    "now": now,
-                    "fw_version": payload.firmware_version,
-                },
-            )
-            record_alerts(conn, authed_device, now, payload, prev)
+            for row in rows:
+                await websocket.send_json({
+                    "type": "command", "command_id": row["command_id"],
+                    "command": row["command"], "params": json.loads(row["params_json"]),
+                    "expires_at": row["expires_ts"],
+                })
+                conn.execute(
+                    "UPDATE remote_commands SET status = 'sent', sent_ts = COALESCE(sent_ts, ?) "
+                    "WHERE command_id = ?", (now, row["command_id"])
+                )
     finally:
         conn.close()
-    return Response(status_code=204)
+
+
+@app.websocket("/api/v1/device-stream")
+async def device_stream(websocket: WebSocket) -> None:
+    device_id = _token_from_websocket(websocket)
+    if device_id is None:
+        await websocket.close(code=1008, reason="invalid bearer token")
+        return
+    await websocket.accept()
+    old = ws_clients.get(device_id)
+    if old is not None:
+        try:
+            await old.close(code=1000, reason="replaced by newer connection")
+        except Exception:
+            pass
+    ws_clients[device_id] = websocket
+    ws_seen[device_id] = int(time.time())
+    try:
+        await websocket.send_json({"type": "connected", "device_id": device_id})
+        while True:
+            try:
+                message = await websocket.receive_json()
+            except ValueError:
+                await websocket.send_json({"type": "error", "reason": "invalid_json"})
+                continue
+            kind = message.get("type")
+            ws_seen[device_id] = int(time.time())
+            if kind == "hello":
+                await websocket.send_json({"type": "hello_ack", "device_id": device_id})
+                await _send_pending_commands(device_id, websocket)
+            elif kind == "heartbeat":
+                await websocket.send_json({"type": "heartbeat_ack", "server_ts": int(time.time())})
+            elif kind == "telemetry":
+                payload_data = dict(message)
+                payload_data.pop("type", None)
+                try:
+                    payload = TelemetryIn.model_validate(payload_data)
+                    _store_telemetry(payload, device_id)
+                    await _send_pending_commands(device_id, websocket)
+                except Exception:
+                    await websocket.send_json({"type": "error", "reason": "invalid_telemetry"})
+            elif kind == "command_ack":
+                command_id = str(message.get("command_id", ""))
+                status = str(message.get("status", ""))
+                if command_id and status in {"applied", "rejected"}:
+                    conn = db()
+                    try:
+                        with conn:
+                            conn.execute(
+                                "UPDATE remote_commands SET status = ?, ack_ts = ?, ack_reason = ? "
+                                "WHERE command_id = ? AND device_id = ? AND status IN ('queued', 'sent')",
+                                (status, int(time.time()), message.get("reason"), command_id, device_id),
+                            )
+                    finally:
+                        conn.close()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if ws_clients.get(device_id) is websocket:
+            ws_clients.pop(device_id, None)
+            ws_seen.pop(device_id, None)
+
+
+@app.post("/api/v1/devices/{device_id}/commands")
+async def create_command(
+    device_id: str,
+    payload: CommandIn,
+    x_requested_with: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    if x_requested_with != "dashboard":
+        raise HTTPException(403, "missing control request header")
+    if device_id not in token_map():
+        raise HTTPException(404, f"unknown device {device_id}")
+    reason = _command_valid(payload.command, payload.params)
+    if reason:
+        raise HTTPException(400, reason)
+    now = int(time.time())
+    command_id = str(uuid.uuid4())
+    expires_ts = now + payload.expires_in
+    conn = db()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO remote_commands (command_id, device_id, command, params_json, status, "
+                "created_ts, expires_ts, requested_by) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)",
+                (command_id, device_id, payload.command, json.dumps(payload.params), now, expires_ts, "dashboard"),
+            )
+    finally:
+        conn.close()
+    websocket = ws_clients.get(device_id)
+    delivered = False
+    if websocket is not None and now - ws_seen.get(device_id, 0) <= WS_HEARTBEAT_TIMEOUT_S:
+        try:
+            await websocket.send_json({
+                "type": "command", "command_id": command_id, "command": payload.command,
+                "params": payload.params, "expires_at": expires_ts,
+            })
+            delivered = True
+            conn = db()
+            try:
+                with conn:
+                    conn.execute("UPDATE remote_commands SET status = 'sent', sent_ts = ? WHERE command_id = ?", (now, command_id))
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    return {"command_id": command_id, "status": "sent" if delivered else "queued", "expires_at": expires_ts}
+
+
+@app.get("/api/v1/devices/{device_id}/commands/{command_id}")
+def command_status(device_id: str, command_id: str) -> dict[str, Any]:
+    conn = db()
+    try:
+        row = conn.execute("SELECT * FROM remote_commands WHERE device_id = ? AND command_id = ?", (device_id, command_id)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(404, "command not found")
+    out = dict(row)
+    out["params"] = json.loads(out.pop("params_json"))
+    return out
 
 
 def _device_row(conn: sqlite3.Connection, device_id: str) -> Optional[sqlite3.Row]:
@@ -401,6 +581,7 @@ def list_devices() -> list[dict[str, Any]]:
                     "samples": samples,
                     "age_s": age,
                     "online": age is not None and age <= OFFLINE_AFTER_S,
+                    "ws_connected": row["device_id"] in ws_clients and now - ws_seen.get(row["device_id"], 0) <= WS_HEARTBEAT_TIMEOUT_S,
                 }
             )
         return out
@@ -436,6 +617,7 @@ def latest(device_id: str) -> dict[str, Any]:
     age = now - int(row["recv_ts"])
     out["age_s"] = age
     out["online"] = age <= OFFLINE_AFTER_S
+    out["ws_connected"] = device_id in ws_clients and now - ws_seen.get(device_id, 0) <= WS_HEARTBEAT_TIMEOUT_S
     out["publish_interval_s"] = PUBLISH_INTERVAL_S
     out["offline_after_s"] = OFFLINE_AFTER_S
     out["label"] = (device["label"] if device else None) or _label(device_id)
@@ -455,6 +637,7 @@ POINT_COLUMNS = (
     "target_temperature",
     "heater_pwm",
     "light_pct",
+    "valve_enabled",
     "valve",
 )
 
@@ -487,6 +670,7 @@ def history(
                        AVG(target_temperature) AS target_temperature,
                        AVG(heater_pwm)         AS heater_pwm,
                        AVG(light_pct)          AS light_pct,
+                       MAX(valve_enabled)      AS valve_enabled,
                        MAX(valve)              AS valve
                 FROM telemetry
                 WHERE device_id = :device_id AND recv_ts >= :since
@@ -521,7 +705,7 @@ def history(
                 value = round(value, 2)
             elif key == "co2" and value is not None:
                 value = int(round(value))
-            elif key in ("heater_pwm", "light_pct", "valve") and value is not None:
+            elif key in ("heater_pwm", "light_pct", "valve_enabled", "valve") and value is not None:
                 value = int(round(value))
             point[key] = value
         points.append(point)
@@ -535,6 +719,34 @@ def history(
         "count": len(points),
         "points": points,
     }
+
+
+@app.get("/api/v1/devices/{device_id}/export.csv")
+def export_csv(device_id: str, hours: float = Query(default=24.0, gt=0, le=24 * 30)) -> Response:
+    now = int(time.time())
+    since = now - int(hours * 3600)
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT recv_ts, temperature, humidity, co2, temperature_ok, humidity_ok, co2_ok "
+            "FROM telemetry WHERE device_id = ? AND recv_ts >= ? ORDER BY recv_ts",
+            (device_id, since),
+        ).fetchall()
+    finally:
+        conn.close()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["timestamp", "device_id", "temperature", "humidity", "co2", "temperature_ok", "humidity_ok", "co2_ok"])
+    for row in rows:
+        writer.writerow([
+            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["recv_ts"])), device_id,
+            row["temperature"], row["humidity"], row["co2"], row["temperature_ok"],
+            row["humidity_ok"], row["co2_ok"],
+        ])
+    return Response(
+        content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{device_id}-{now}.csv"'},
+    )
 
 
 @app.get("/api/v1/devices/{device_id}/alerts")

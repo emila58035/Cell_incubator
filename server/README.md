@@ -1,6 +1,6 @@
 # Incubator telemetry server
 
-服务器端：接收培养箱上报、持久化、提供只读看板。**固件不在本目录**（固件在 `../src/`，联网改造尚未开始）。
+服务器端：接收培养箱上报、持久化、提供看板和 WebSocket 远程控制。**固件不在本目录**（固件在 `../src/`）。
 两者与本文冲突时，**以本文与代码为准**（本文是这几份文件里唯一经过实测的）。
 
 ---
@@ -10,6 +10,7 @@
 ```
 ESP32-S3 ──HTTPS POST──▶ Nginx :443 (175.24.182.190)
                             ├─ /api/v1/telemetry      反代，无 Basic Auth，Bearer 鉴权 + 限流
+                            ├─ /api/v1/device-stream  WebSocket，Bearer 鉴权
                             └─ /                   反代 + Basic Auth（看板与查询接口）
                                    ↓
                             Uvicorn/FastAPI  127.0.0.1:8000   ← 绝不监听公网
@@ -29,8 +30,9 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 |---|---|
 | `app.py` | 全部服务端逻辑（FastAPI 路由、校验、鉴权、告警、查询） |
 | `schema.sql` | 三张表 + 索引；每条语句幂等，可直接对已存在的库重复执行 |
-| `static/index.html` | 只读看板。**零外部依赖**（不引 CDN、不引图表库），手写 canvas 画曲线 |
-| `tests/test_api_smoke.py` | 契约冒烟测试。只用标准库 + 真实 uvicorn 子进程，45 项断言 |
+| `static/index.html` | 看板与远程控制。**零外部依赖**（不引 CDN、不引图表库），手写 canvas 画曲线 |
+| `tests/test_api_smoke.py` | HTTP 契约冒烟测试。只用标准库 + 真实 uvicorn 子进程 |
+| `tests/test_websocket_control.py` | WebSocket 连接、命令推送和 ACK 冒烟测试 |
 | `deploy/setup.sh` | 幂等安装脚本（见 §4） |
 | `deploy/incubator-api.service` | systemd 单元，只绑 `127.0.0.1:8000` |
 | `deploy/incubator-https.conf` | Nginx 443 前端的**独立新文件**，不修改既有配置 |
@@ -54,10 +56,14 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
 | POST | `/api/v1/telemetry` | 设备 Bearer | 上报。成功 `204` 空体 |
+| WebSocket | `/api/v1/device-stream` | 设备 Bearer | 长连接遥测、心跳、命令下发与回执 |
 | GET | `/api/v1/devices` | Basic Auth | 设备列表 + 在线状态 + 样本数 |
 | GET | `/api/v1/devices/{id}/latest` | Basic Auth | 最新一条 + 派生字段 + 未恢复告警 |
 | GET | `/api/v1/devices/{id}/history?hours=&step=` | Basic Auth | 曲线数据。`hours>6` 自动按 60 s 分桶 |
 | GET | `/api/v1/devices/{id}/alerts?hours=` | Basic Auth | 告警历史 |
+| POST | `/api/v1/devices/{id}/commands` | Basic Auth（由 Nginx 强制） | 创建远程控制命令 |
+| GET | `/api/v1/devices/{id}/commands/{command_id}` | Basic Auth（由 Nginx 强制） | 查询命令执行状态 |
+| GET | `/api/v1/devices/{id}/export.csv?hours=` | Basic Auth | 下载温度、湿度和 CO₂ CSV |
 | GET | `/healthz` | Basic Auth | 健康检查（在 Nginx 后需密码；`127.0.0.1` 上直连不需要） |
 
 `/docs`、`/redoc`、`/openapi.json` **已主动关闭**：裸 IP 无域名遮蔽，少一个暴露面。
@@ -221,5 +227,5 @@ Serial.printf("[CO2] Reading OK: %lu ppm ...", scaledPpm);   // 打印成 ppm，
 | 1 | CO₂ 真实单位确认，据此修正原始设计中的 ppm 假设与是否加阈值告警 | 固件/硬件 |
 | 2 | 留存清理 `retention.py`（90 天 + 小时聚合） | P3 |
 | 3 | 看板的 `co2_pct` 换算显示（等 #1 确认） | P3 |
-| 4 | 固件联网模块（并发模型方案 1/2 尚未裁决） | 固件 |
+| 4 | WebSocket 远控实机联调（需上传本目录并烧录对应固件） | 固件/服务器 |
 | 5 | ICP 备案后可切域名 + LE 证书（**可选**，只为消除浏览器证书警告） | 可选 |

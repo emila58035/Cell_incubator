@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
   heater_on   INTEGER, heater_pwm INTEGER,
   light       INTEGER, light_pct  INTEGER,
   fan         INTEGER,
+  valve_enabled INTEGER,
   valve       INTEGER,
 
   -- Diagnostics: rssi for the radio link, heap_* for leak detection.
@@ -57,3 +58,20 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS idx_alerts_dev_ts ON alerts(device_id, raised_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_open
   ON alerts(device_id, kind) WHERE cleared_ts IS NULL;
+
+CREATE TABLE IF NOT EXISTS remote_commands (
+  command_id  TEXT PRIMARY KEY,
+  device_id   TEXT NOT NULL,
+  command     TEXT NOT NULL,
+  params_json TEXT NOT NULL,
+  status      TEXT NOT NULL,
+  created_ts  INTEGER NOT NULL,
+  expires_ts  INTEGER NOT NULL,
+  sent_ts     INTEGER,
+  ack_ts      INTEGER,
+  ack_reason  TEXT,
+  requested_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_commands_device
+  ON remote_commands(device_id, created_ts DESC);

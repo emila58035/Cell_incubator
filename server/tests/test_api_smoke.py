@@ -247,6 +247,11 @@ try:
     check("24h window covers the backdated rows", hist24["count"] >= 1, hist24["count"])
     explicit = body(http("GET", "/api/v1/devices/incubator-001/history?hours=2&step=300")[1])
     check("explicit step honoured", explicit["step_s"] == 300, explicit["step_s"])
+    csv_status, csv_raw = http("GET", "/api/v1/devices/incubator-001/export.csv?hours=1")
+    check("CSV export succeeds", csv_status == 200, csv_status)
+    check("CSV export has requested columns",
+          csv_raw.decode("utf-8-sig").splitlines()[0] ==
+          "timestamp,device_id,temperature,humidity,co2,temperature_ok,humidity_ok,co2_ok")
     check("history rejects hours<=0",
           http("GET", "/api/v1/devices/incubator-001/history?hours=0")[0] == 400)
     check("history rejects step<5",

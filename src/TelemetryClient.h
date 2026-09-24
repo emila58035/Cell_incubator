@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include "esp_websocket_client.h"
 
 #include "NetworkConfig.h"
 #include "SystemState.h"
@@ -72,11 +73,18 @@ class TelemetryClient {
 
  private:
   static void taskEntry(void *arg);
+  static void websocketEvent(void *handler_args, esp_event_base_t base,
+                             int32_t event_id, void *event_data);
   void taskLoop();
   void publish(uint32_t now, SystemState &state);
   TelemetrySample takeSnapshot();
   TelemetryDiagnostics gatherDiagnostics() const;
   void reportOnce(uint32_t now);
+  void sendTelemetry(uint32_t now);
+  void sendHeartbeat(uint32_t now);
+  void handleWebsocketEvent(int32_t eventId, esp_websocket_event_data_t *event);
+  void applyPendingCommand(SystemState &state);
+  void sendPendingAck();
 #if SENSOR_SIMULATION
   // Development build only: build and print the payload without posting, so the
   // contract can be checked with no access point and no credentials.
@@ -90,6 +98,7 @@ class TelemetryClient {
   WiFiManager wifi_;
   WiFiClientSecure tls_;
   HTTPClient http_;
+  esp_websocket_client_handle_t websocket_ = nullptr;
 
   char body_[NetworkConfig::MaxBodyBytes];
   char authorization_[96];
@@ -102,6 +111,31 @@ class TelemetryClient {
   volatile int16_t httpCode_ = 0;
   volatile uint32_t lastSuccessMs_ = 0;
   bool reportedMissingCa_ = false;
+
+  enum RemoteCommandType : uint8_t {
+    CommandNone,
+    CommandSetTemperature,
+    CommandSetHeater,
+    CommandSetLight,
+    CommandSetFan,
+    CommandSetValve,
+  };
+  struct PendingCommand {
+    RemoteCommandType type = CommandNone;
+    float temperature = 0.0f;
+    bool enabled = false;
+    uint8_t brightness = 0;
+    char id[40] = {};
+  };
+  PendingCommand pendingCommand_;
+  bool commandPending_ = false;
+  bool ackPending_ = false;
+  bool ackApplied_ = false;
+  char ackId_[40] = {};
+  char ackReason_[48] = {};
+  char lastCommandId_[40] = {};
+  portMUX_TYPE commandMux_ = portMUX_INITIALIZER_UNLOCKED;
+  uint32_t lastHeartbeatMs_ = 0;
 
   // Static allocation keeps the stack in .bss, which is internal RAM. A
   // heap-allocated task stack could land in PSRAM (the precompiled libraries
