@@ -39,7 +39,7 @@ enum TelemetryFlag : uint8_t {
   TelemetryHeatingEnabled = 1u << 4,
   TelemetryLightEnabled = 1u << 5,
   TelemetryFanEnabled = 1u << 6,
-  TelemetryValveOpen = 1u << 7,
+  TelemetryValveEnabled = 1u << 7,
 };
 
 // Diagnostics are read by the network task at the moment of the report, so

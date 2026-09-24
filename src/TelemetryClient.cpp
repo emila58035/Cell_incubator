@@ -110,8 +110,8 @@ void TelemetryClient::publish(uint32_t now, SystemState &state) {
   if (state.fanEnabled) {
     flags |= TelemetryFanEnabled;
   }
-  if (state.valveOpen) {
-    flags |= TelemetryValveOpen;
+  if (state.valveEnabled) {
+    flags |= TelemetryValveEnabled;
   }
   sample_.flags = flags;
   portEXIT_CRITICAL(&mux_);
@@ -236,7 +236,7 @@ bool TelemetryClient::buildBody(const TelemetrySample &sample,
       jsonBool(sample.flags & TelemetryLightEnabled),
       (unsigned)sample.lightBrightness,
       jsonBool(sample.flags & TelemetryFanEnabled),
-      jsonBool(sample.flags & TelemetryValveOpen), (int)diagnostics.rssi,
+      jsonBool(sample.flags & TelemetryValveEnabled), (int)diagnostics.rssi,
       (unsigned long)diagnostics.heapFree, (unsigned long)diagnostics.heapMin,
       (unsigned long)diagnostics.heapInt);
 

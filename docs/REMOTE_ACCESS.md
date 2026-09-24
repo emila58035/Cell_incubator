@@ -229,6 +229,7 @@ ESP32-S3 ──HTTPS POST──▶ Nginx :443 (175.24.182.190)
 | `temperature_ok` / `humidity_ok` / `co2_ok` | 布尔 | **缺了它看板无法区分"传感器故障"与"读数恰为 0"** |
 | `co2_available` | 布尔 | 与 `co2_ok` 职责不同："传感器在不在线" vs "本次读数可不可信" |
 | `heater_on` | 布尔 | **开关 ON + 传感器故障时 `heater_pwm=0`，与"用户主动关加热"的 0 含义完全不同** |
+| `valve` | 布尔 | **是阀门手动开关（AUTO/OFF），不是瞬时阀位**：脉冲阀一次只开 500 ms / 1000 ms，10 s 上报周期采到的几乎总是关闭 |
 | `uptime_s` | ≥ 0 | 设备只报运行时长；**时间戳由服务器打**（`recv_ts`），故设备**不需要 NTP** |
 
 **未知字段被忽略（不报错）**：固件先加字段、服务器后跟上时不会丢掉整条样本。代价是字段名写错会变成 NULL（看板可见），而不是整条丢失（不可见）。
@@ -534,7 +535,7 @@ co2              → co2（原值，不换算）  co2Valid → co2_ok，co2Avail
 setpoint         → target_temperature
 heatingEnabled   → heater_on          heaterDuty       → heater_pwm
 lightEnabled     → light              lightBrightness  → light_pct
-fanEnabled       → fan                valveOpen        → valve
+fanEnabled       → fan                valveEnabled     → valve
 millis()/1000    → uptime_s           ESP.getFreeHeap()      → heap_free
 ESP.getMinFreeHeap() → heap_min       heap_caps_get_free_size(INTERNAL|8BIT) → heap_int
 WiFi.RSSI()      → rssi               NetworkConfig::FirmwareVersion → firmware_version
