@@ -192,9 +192,13 @@ void HeaterController::logPrediction(const SystemState &state,
   predictivePwm_ += constrain(requestedPwm - predictivePwm_,
                               -Config::PredictiveMaximumPwmStep,
                               Config::PredictiveMaximumPwmStep);
+  const double blendPwm = constrain(
+      pidPwm + Config::PredictiveBlend * (predictivePwm_ - pidPwm), 0.0,
+      static_cast<double>(Config::HeaterPwmMaximum));
   Serial.printf(
       "[PREDICT] temp=%.2f set=%.2f pwm=%.0f base=%.1f pred_pwm=%.1f "
-      "pred_%us=%.2f\n",
+      "blend_pwm=%.1f blend=%.2f pred_%us=%.2f\n",
       state.temperature, state.setpoint, pidPwm, basePwm, predictivePwm_,
-      Config::PredictiveHorizonSeconds, predictedTemperature);
+      blendPwm, Config::PredictiveBlend, Config::PredictiveHorizonSeconds,
+      predictedTemperature);
 }
