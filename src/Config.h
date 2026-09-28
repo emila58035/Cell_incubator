@@ -11,6 +11,7 @@ constexpr int AhtSclPin = 2;
 constexpr uint8_t AhtAddress = 0x38;
 constexpr uint32_t AhtSampleIntervalMs = 1000;
 constexpr uint32_t AhtReconnectIntervalMs = 5000;
+constexpr float AhtMaximumTemperatureStepCelsius = 1.0f;
 
 constexpr int HeaterPwmPin = 39;
 constexpr uint32_t HeaterPwmFrequency = 2000;
