@@ -53,12 +53,22 @@ constexpr double MaximumSetpoint = 100.0;
 constexpr double EncoderTemperatureStep = 0.1;
 
 constexpr double ConservativeKp = 10.0;
-constexpr double ConservativeKi = 0.2;
-constexpr double ConservativeKd = 0.1;
+constexpr double ConservativeKi = 0.05;
+constexpr double ConservativeKd = 0;
 constexpr double AggressiveKp = 20.0;
 constexpr double AggressiveKi = 0.0;
 constexpr double AggressiveKd = 0.0;
 constexpr double ConservativeBandCelsius = 3.0;
+
+// Observation-only predictive controller model. The prediction is logged
+// beside the existing PID output until its error is verified on the device.
+constexpr double PredictiveAmbientCelsius = 26.0;
+constexpr double PredictiveTimeConstantSeconds = 2427.0;
+constexpr double PredictiveDelaySeconds = 74.0;
+constexpr double PredictiveFullPwmRiseCelsius = 76.0;
+constexpr uint16_t PredictiveHorizonSeconds = 180;
+constexpr uint16_t PredictiveHistorySeconds = 120;
+constexpr uint32_t PredictiveLogIntervalMs = 1000;
 
 constexpr int DisplayWidth = 320;
 constexpr int DisplayHeight = 240;
