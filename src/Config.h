@@ -58,7 +58,7 @@ constexpr double ConservativeKd = 0;
 constexpr double AggressiveKp = 20.0;
 constexpr double AggressiveKi = 0.0;
 constexpr double AggressiveKd = 0.0;
-constexpr double ConservativeBandCelsius = 3.0;
+constexpr double ConservativeBandCelsius = 5.0;
 
 // Observation-only predictive controller model. The prediction is logged
 // beside the existing PID output until its error is verified on the device.
