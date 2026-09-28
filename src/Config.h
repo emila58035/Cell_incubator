@@ -67,6 +67,7 @@ constexpr double PredictiveAmbientCelsius = 26.0;
 constexpr double PredictiveTimeConstantSeconds = 2427.0;
 constexpr double PredictiveDelaySeconds = 74.0;
 constexpr double PredictiveFullPwmRiseCelsius = 76.0;
+constexpr double PredictiveFeedbackGainPwmPerCelsius = 12.0;
 constexpr uint16_t PredictiveHorizonSeconds = 180;
 constexpr uint16_t PredictiveHistorySeconds = 120;
 constexpr uint32_t PredictiveLogIntervalMs = 1000;

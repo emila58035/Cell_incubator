@@ -178,9 +178,14 @@ double HeaterController::predictTemperature(double temperature,
 void HeaterController::logPrediction(const SystemState &state,
                                      double predictedTemperature,
                                      double basePwm,
-                                     double candidatePwm) const {
+                                     double pidPwm) const {
+  const double predictivePwm = constrain(
+      basePwm + Config::PredictiveFeedbackGainPwmPerCelsius *
+                    (state.setpoint - predictedTemperature),
+      0.0, static_cast<double>(Config::HeaterPwmMaximum));
   Serial.printf(
-      "[PREDICT] temp=%.2f set=%.2f pwm=%.0f base=%.1f pred_%us=%.2f\n",
-      state.temperature, state.setpoint, candidatePwm, basePwm,
+      "[PREDICT] temp=%.2f set=%.2f pwm=%.0f base=%.1f pred_pwm=%.1f "
+      "pred_%us=%.2f\n",
+      state.temperature, state.setpoint, pidPwm, basePwm, predictivePwm,
       Config::PredictiveHorizonSeconds, predictedTemperature);
 }

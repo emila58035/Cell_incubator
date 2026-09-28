@@ -37,5 +37,5 @@ class HeaterController {
   void recordPredictionSample(uint32_t duty);
   double predictTemperature(double temperature, double candidatePwm) const;
   void logPrediction(const SystemState &state, double predictedTemperature,
-                     double basePwm, double candidatePwm) const;
+                     double basePwm, double pidPwm) const;
 };
