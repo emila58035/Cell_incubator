@@ -70,26 +70,31 @@ void HeaterController::update(SystemState &state) {
   }
 
   pid_.Compute();
-  const uint32_t duty =
+  const uint32_t pidDuty =
       (uint32_t)constrain(output_, 0.0, (double)Config::HeaterPwmMaximum);
-  writeHeaterDuty(duty);
-  publishOutput(state, duty);
-
+  uint32_t duty = pidDuty;
   const uint32_t now = millis();
   if (!hasPredictiveSample_ ||
       now - lastPredictiveSampleMs_ >= Config::PredictiveLogIntervalMs) {
-    recordPredictionSample(duty);
     const double basePwm = constrain(
         (setpoint_ - Config::PredictiveAmbientCelsius) /
             Config::PredictiveFullPwmRiseCelsius * Config::HeaterPwmMaximum,
         0.0, (double)Config::HeaterPwmMaximum);
     const double predictedTemperature =
-        predictTemperature(input_, static_cast<double>(duty));
-    logPrediction(state, predictedTemperature, basePwm,
-                  static_cast<double>(duty));
+        predictTemperature(input_, static_cast<double>(pidDuty));
+    const double blendedPwm =
+        logPrediction(state, predictedTemperature, basePwm,
+                      static_cast<double>(pidDuty));
+    duty = static_cast<uint32_t>(round(blendedPwm));
+    predictiveControlDuty_ = duty;
+    recordPredictionSample(duty);
     lastPredictiveSampleMs_ = now;
     hasPredictiveSample_ = true;
+  } else if (Config::PredictiveBlend > 0.0) {
+    duty = predictiveControlDuty_;
   }
+  writeHeaterDuty(duty);
+  publishOutput(state, duty);
 }
 
 void HeaterController::stop(SystemState &state) {
@@ -130,6 +135,7 @@ void HeaterController::resetPrediction() {
   hasPredictiveSample_ = false;
   predictivePwm_ = 0.0;
   hasPredictivePwm_ = false;
+  predictiveControlDuty_ = 0;
 }
 
 void HeaterController::recordPredictionSample(uint32_t duty) {
@@ -177,10 +183,10 @@ double HeaterController::predictTemperature(double temperature,
   return predicted;
 }
 
-void HeaterController::logPrediction(const SystemState &state,
-                                     double predictedTemperature,
-                                     double basePwm,
-                                     double pidPwm) {
+double HeaterController::logPrediction(const SystemState &state,
+                                       double predictedTemperature,
+                                       double basePwm,
+                                       double pidPwm) {
   const double requestedPwm = constrain(
       basePwm + Config::PredictiveFeedbackGainPwmPerCelsius *
                     (state.setpoint - predictedTemperature),
@@ -201,4 +207,5 @@ void HeaterController::logPrediction(const SystemState &state,
       state.temperature, state.setpoint, pidPwm, basePwm, predictivePwm_,
       blendPwm, Config::PredictiveBlend, Config::PredictiveHorizonSeconds,
       predictedTemperature);
+  return blendPwm;
 }
