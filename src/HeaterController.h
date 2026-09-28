@@ -29,6 +29,8 @@ class HeaterController {
   uint16_t pwmHistoryHead_ = 0;
   uint32_t lastPredictiveSampleMs_ = 0;
   bool hasPredictiveSample_ = false;
+  double predictivePwm_ = 0.0;
+  bool hasPredictivePwm_ = false;
 
   void stop(SystemState &state);
   void writeHeaterDuty(uint32_t duty);
@@ -37,5 +39,5 @@ class HeaterController {
   void recordPredictionSample(uint32_t duty);
   double predictTemperature(double temperature, double candidatePwm) const;
   void logPrediction(const SystemState &state, double predictedTemperature,
-                     double basePwm, double pidPwm) const;
+                     double basePwm, double pidPwm);
 };

@@ -128,6 +128,8 @@ void HeaterController::resetPrediction() {
   pwmHistoryHead_ = 0;
   lastPredictiveSampleMs_ = 0;
   hasPredictiveSample_ = false;
+  predictivePwm_ = 0.0;
+  hasPredictivePwm_ = false;
 }
 
 void HeaterController::recordPredictionSample(uint32_t duty) {
@@ -178,14 +180,21 @@ double HeaterController::predictTemperature(double temperature,
 void HeaterController::logPrediction(const SystemState &state,
                                      double predictedTemperature,
                                      double basePwm,
-                                     double pidPwm) const {
-  const double predictivePwm = constrain(
+                                     double pidPwm) {
+  const double requestedPwm = constrain(
       basePwm + Config::PredictiveFeedbackGainPwmPerCelsius *
                     (state.setpoint - predictedTemperature),
       0.0, static_cast<double>(Config::HeaterPwmMaximum));
+  if (!hasPredictivePwm_) {
+    predictivePwm_ = pidPwm;
+    hasPredictivePwm_ = true;
+  }
+  predictivePwm_ += constrain(requestedPwm - predictivePwm_,
+                              -Config::PredictiveMaximumPwmStep,
+                              Config::PredictiveMaximumPwmStep);
   Serial.printf(
       "[PREDICT] temp=%.2f set=%.2f pwm=%.0f base=%.1f pred_pwm=%.1f "
       "pred_%us=%.2f\n",
-      state.temperature, state.setpoint, pidPwm, basePwm, predictivePwm,
+      state.temperature, state.setpoint, pidPwm, basePwm, predictivePwm_,
       Config::PredictiveHorizonSeconds, predictedTemperature);
 }
