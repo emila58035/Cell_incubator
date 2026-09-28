@@ -70,7 +70,7 @@ constexpr double PredictiveFullPwmRiseCelsius = 76.0;
 constexpr double PredictiveFeedbackGainPwmPerCelsius = 12.0;
 constexpr double PredictiveMaximumPwmStep = 3.0;
 // Keep the predictive path observational until a device log validates it.
-constexpr double PredictiveBlend = 0.0;
+constexpr double PredictiveBlend = 0.2;
 constexpr uint16_t PredictiveHorizonSeconds = 180;
 constexpr uint16_t PredictiveHistorySeconds = 120;
 constexpr uint32_t PredictiveLogIntervalMs = 1000;
