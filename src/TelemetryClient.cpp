@@ -1,7 +1,7 @@
 #include "TelemetryClient.h"
 
 #include "esp_heap_caps.h"
-#include "soc/soc_memory_types.h"
+#include "esp_memory_utils.h"
 #include "Config.h"
 
 namespace {
