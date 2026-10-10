@@ -68,7 +68,7 @@ pio run                 # 生产固件（排除 SensorSimulator.cpp）
 pio run -e sim          # 模拟构建（含合成传感器，版本号 0.1.0-sim，绝不能烧到接执行器的板子）
 ```
 
-⚠️ 首次构建需从 GitHub 拉取 `platform_packages` 里钉住的 `arduino-esp32 3.0.7` 与 `esp32-arduino-libs`。中国大陆直连 `github.com:443` 经常超时，需自备可用网络。
+框架依赖配置为 Arduino-ESP32 2.0.17。首次构建需要联网，由 PlatformIO 自动安装框架和其他依赖；工程内的 `.pio` 是构建缓存，无需随源码打包。
 
 ### 凭据文件（联网必需）
 
