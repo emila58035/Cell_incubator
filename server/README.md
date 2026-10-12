@@ -33,6 +33,7 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 | `static/index.html` | 看板与远程控制。**零外部依赖**（不引 CDN、不引图表库），手写 canvas 画曲线 |
 | `tests/test_api_smoke.py` | HTTP 契约冒烟测试。只用标准库 + 真实 uvicorn 子进程 |
 | `tests/test_websocket_control.py` | WebSocket 连接、命令推送和 ACK 冒烟测试 |
+| `tests/test_dashboard_browser.py` | 电脑/手机网页、原始数据分页、缩放、CSV 与模拟设备远控验证；开发时使用 Playwright |
 | `deploy/setup.sh` | 幂等安装脚本（见 §4） |
 | `deploy/incubator-api.service` | systemd 单元，只绑 `127.0.0.1:8000` |
 | `deploy/incubator-https.conf` | Nginx 443 前端的**独立新文件**，不修改既有配置 |
@@ -59,14 +60,34 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 | WebSocket | `/api/v1/device-stream` | 设备 Bearer | 长连接遥测、心跳、命令下发与回执 |
 | GET | `/api/v1/devices` | Basic Auth | 设备列表 + 在线状态 + 样本数 |
 | GET | `/api/v1/devices/{id}/latest` | Basic Auth | 最新一条 + 派生字段 + 未恢复告警 |
-| GET | `/api/v1/devices/{id}/history?hours=&step=` | Basic Auth | 曲线数据。`hours>6` 自动按 60 s 分桶 |
+| GET | `/api/v1/devices/{id}/history?hours=&from_ts=&to_ts=&cursor=&snapshot_id=&limit=` | Basic Auth | 所有时间范围默认返回原始采样，按时间和采样 ID 升序分页；显式 `step` 参数可请求聚合 |
 | GET | `/api/v1/devices/{id}/alerts?hours=` | Basic Auth | 告警历史 |
 | POST | `/api/v1/devices/{id}/commands` | Basic Auth（由 Nginx 强制） | 创建远程控制命令 |
 | GET | `/api/v1/devices/{id}/commands/{command_id}` | Basic Auth（由 Nginx 强制） | 查询命令执行状态 |
-| GET | `/api/v1/devices/{id}/export.csv?hours=` | Basic Auth | 下载温度、湿度和 CO₂ CSV |
+| GET | `/api/v1/devices/{id}/export.csv?hours=&from_ts=&to_ts=` | Basic Auth | 下载所选范围内的原始温度、湿度和 CO₂ CSV |
 | GET | `/healthz` | Basic Auth | 健康检查（在 Nginx 后需密码；`127.0.0.1` 上直连不需要） |
 
 `/docs`、`/redoc`、`/openapi.json` **已主动关闭**：裸 IP 无域名遮蔽，少一个暴露面。
+
+### 新看板与原始历史分页
+
+看板将执行器状态与控制合并为卡片，支持电脑/手机和深浅主题。温度、湿度、CO₂ 为三个独立趋势图，共用时间范围；CO₂ 纵轴固定为 `0–100000`。远控按钮仅在 `ws_connected=true` 时可用，目标温度及亮度输入不会被自动刷新覆盖。
+
+1 小时、6 小时、24 小时、7 天及自定义范围均显示原始采样，不取分钟平均；悬停/触摸查看原始点，拖动框选或使用按钮缩放时间轴。CSV 使用当前查看范围，包括缩放后的范围，时间列为 UTC。
+
+历史接口每页默认 2000 点，`limit` 最大为 5000。第一页返回 `from_ts`、`to_ts`、`snapshot_id`、`last_cursor` 与 `next_cursor`；下一页需重复相同起止时间及快照 ID，并将 `next_cursor` 作为 `cursor`，直到 `next_cursor=null`。时间与 ID 联合游标可保留同一秒内的多条采样。原始浮点值不作二次舍入。显式 `step` 聚合接口保留旧的 2000 点上限，网页不使用该模式。
+
+网页缓存已加载的范围，实时窗口后续只获取末尾游标之后的新点，并移除过期点。自定义范围需同时提供 `from_ts` 和 `to_ts`（Unix 秒），跨度大于 0 且不超过 30 天。7 天按 10 秒采样约 60,480 点，首次加载比短范围耗时更长。
+
+开发验证：
+
+```bash
+python -m pip install playwright
+python -m playwright install chromium
+python server/tests/test_dashboard_browser.py --output /tmp/incubator-dashboard-preview
+```
+
+如已安装 Edge/Chrome，可用 `--browser-executable` 指定浏览器路径。浏览器测试使用临时数据库和模拟设备，不接触实际设备；服务器运行无需安装 Playwright。
 
 ### 上报载荷
 

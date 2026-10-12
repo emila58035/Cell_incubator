@@ -42,7 +42,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
 APP_DIR = Path(__file__).resolve().parent
 
 DB_PATH = Path(os.environ.get("INCUBATOR_DB") or "/var/lib/incubator/data.db")
@@ -642,21 +642,44 @@ POINT_COLUMNS = (
 )
 
 
+def history_window(hours: float, from_ts: Optional[int], to_ts: Optional[int]) -> tuple[int, int]:
+    if from_ts is None and to_ts is None:
+        end = int(time.time())
+        return end - int(hours * 3600), end
+    if from_ts is None or to_ts is None or not 0 < to_ts - from_ts <= 30 * 86400:
+        raise HTTPException(400, "provide from_ts and to_ts with a range of at most 30 days")
+    return from_ts, to_ts
+
+
 @app.get("/api/v1/devices/{device_id}/history")
 def history(
     device_id: str,
     hours: float = Query(default=1.0, gt=0, le=24 * 30),
     step: Optional[int] = Query(default=None, ge=5, le=3600),
+    from_ts: Optional[int] = Query(default=None, ge=0),
+    to_ts: Optional[int] = Query(default=None, ge=0),
+    cursor: Optional[str] = Query(default=None, max_length=64),
+    snapshot_id: Optional[int] = Query(default=None, ge=0),
+    limit: int = Query(default=2000, ge=1, le=5000),
 ) -> dict[str, Any]:
-    """Raw samples for short windows, 1 minute buckets beyond 6 hours.
+    """Raw samples in timestamp/id order, with a fixed snapshot across pages.
 
-    Without downsampling a 24h window is 8640 points, which is enough to make
-    the browser unusable and wastes bandwidth over a mobile connection.
+    Repeat from_ts, to_ts and snapshot_id with next_cursor to read all pages.
+    Explicit step still enables the legacy aggregate query.
     """
-    now = int(time.time())
-    since = now - int(hours * 3600)
-    bucket = step if step is not None else (60 if hours > 6 else 0)
+    since, now = history_window(hours, from_ts, to_ts)
+    bucket = step or 0
     columns = ", ".join(POINT_COLUMNS)
+    after_ts, after_id = -1, 0
+    if cursor is not None:
+        try:
+            after_ts, after_id = map(int, cursor.split(":"))
+            if after_ts < 0 or after_id < 1:
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, "invalid history cursor")
+    if bucket and (cursor is not None or snapshot_id is not None):
+        raise HTTPException(400, "pagination applies to raw history only")
 
     conn = db()
     try:
@@ -673,7 +696,7 @@ def history(
                        MAX(valve_enabled)      AS valve_enabled,
                        MAX(valve)              AS valve
                 FROM telemetry
-                WHERE device_id = :device_id AND recv_ts >= :since
+                WHERE device_id = :device_id AND recv_ts BETWEEN :since AND :until
                 GROUP BY recv_ts
                 ORDER BY recv_ts
                 LIMIT :limit
@@ -682,22 +705,35 @@ def history(
                     "bucket": bucket,
                     "device_id": device_id,
                     "since": since,
+                    "until": now,
                     "limit": HISTORY_POINT_LIMIT,
                 },
             ).fetchall()
         else:
+            if snapshot_id is None:
+                snapshot_id = conn.execute(
+                    "SELECT COALESCE(MAX(id), 0) FROM telemetry",
+                ).fetchone()[0]
             rows = conn.execute(
-                f"SELECT {columns} FROM telemetry"
-                " WHERE device_id = :device_id AND recv_ts >= :since"
-                " ORDER BY recv_ts DESC LIMIT :limit",
-                {"device_id": device_id, "since": since, "limit": HISTORY_POINT_LIMIT},
+                f"SELECT id AS sample_id, {columns} FROM telemetry"
+                " WHERE device_id = :device_id AND recv_ts BETWEEN :since AND :until"
+                " AND id <= :snapshot_id AND (recv_ts, id) > (:after_ts, :after_id)"
+                " ORDER BY recv_ts, id LIMIT :limit",
+                {"device_id": device_id, "since": since, "until": now,
+                 "snapshot_id": snapshot_id, "after_ts": after_ts, "after_id": after_id,
+                 "limit": limit + 1},
             ).fetchall()
-            rows = list(reversed(rows))
     finally:
         conn.close()
 
     points: list[dict[str, Any]] = []
+    has_more = not bucket and len(rows) > limit
+    if not bucket:
+        rows = rows[:limit]
     for row in rows:
+        if not bucket:
+            points.append(dict(row))
+            continue
         point: dict[str, Any] = {}
         for key in POINT_COLUMNS:
             value = row[key]
@@ -714,23 +750,30 @@ def history(
         "device_id": device_id,
         "from_ts": since,
         "to_ts": now,
-        "hours": hours,
+        "hours": (now - since) / 3600,
         "step_s": bucket or None,
         "count": len(points),
         "points": points,
+        "snapshot_id": snapshot_id,
+        "last_cursor": f"{rows[-1]['recv_ts']}:{rows[-1]['sample_id']}" if rows and not bucket else cursor,
+        "next_cursor": f"{rows[-1]['recv_ts']}:{rows[-1]['sample_id']}" if has_more else None,
     }
 
 
 @app.get("/api/v1/devices/{device_id}/export.csv")
-def export_csv(device_id: str, hours: float = Query(default=24.0, gt=0, le=24 * 30)) -> Response:
-    now = int(time.time())
-    since = now - int(hours * 3600)
+def export_csv(
+    device_id: str,
+    hours: float = Query(default=24.0, gt=0, le=24 * 30),
+    from_ts: Optional[int] = Query(default=None, ge=0),
+    to_ts: Optional[int] = Query(default=None, ge=0),
+) -> Response:
+    since, now = history_window(hours, from_ts, to_ts)
     conn = db()
     try:
         rows = conn.execute(
             "SELECT recv_ts, temperature, humidity, co2, temperature_ok, humidity_ok, co2_ok "
-            "FROM telemetry WHERE device_id = ? AND recv_ts >= ? ORDER BY recv_ts",
-            (device_id, since),
+            "FROM telemetry WHERE device_id = ? AND recv_ts BETWEEN ? AND ? ORDER BY recv_ts, id",
+            (device_id, since, now),
         ).fetchall()
     finally:
         conn.close()

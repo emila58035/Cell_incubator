@@ -1,426 +1,345 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>培养箱监控</title>
+<title>培养箱监测</title>
 <style>
-  :root {
-    --bg: #10151c; --panel: #18202a; --line: #263241; --fg: #e6edf3;
-    --dim: #8a97a6; --ok: #35c07a; --warn: #e0a53a; --bad: #e5544b; --acc: #4aa8ff;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-         font: 14px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 12px; }
-
-  #bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-         background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-         padding: 10px 14px; margin-bottom: 12px; }
-  #dot { width: 11px; height: 11px; border-radius: 50%; background: var(--dim); flex: none; }
-  #bar.online #dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-  #bar.offline #dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
-  #state { font-weight: 600; }
-  .meta { color: var(--dim); font-size: 12.5px; }
-  .spacer { flex: 1; }
-
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
-  .card .label { color: var(--dim); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
-  .card .value { font-size: 30px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .card .value .unit { font-size: 15px; color: var(--dim); font-weight: 400; margin-left: 4px; }
-  .card .sub { color: var(--dim); font-size: 12.5px; min-height: 18px; }
-  .badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11.5px;
-           font-weight: 600; border: 1px solid transparent; }
-  .badge.ok { color: var(--ok); border-color: #1d5c3e; }
-  .badge.bad { color: var(--bad); border-color: #5e2b27; }
-  .badge.warn { color: var(--warn); border-color: #5c4a1c; }
-
-  h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim);
-       margin: 18px 0 8px; font-weight: 600; }
-  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-          padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; }
-  .chip .k { color: var(--dim); font-size: 12.5px; }
-  .chip .v { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .on { color: var(--ok); } .off { color: var(--dim); }
-
-  .chartbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-              padding: 10px; margin-bottom: 12px; }
-  .chartbox .head { display: flex; justify-content: space-between; align-items: center;
-                    margin-bottom: 6px; font-size: 12.5px; color: var(--dim); }
-  canvas { display: block; width: 100%; height: 150px; }
-  .ranges { display: flex; gap: 6px; }
-  .ranges button { background: transparent; color: var(--dim); border: 1px solid var(--line);
-                   border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12.5px; }
-  .ranges button.active { color: var(--fg); border-color: var(--acc); background: #1b2c40; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  th { color: var(--dim); font-weight: 500; font-size: 12px; }
-  .empty { color: var(--dim); font-size: 13px; padding: 8px 0; }
-  .controls { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
-  .controls form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .controls input { width: 100px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); padding: 5px 7px; border-radius: 5px; }
-  .controls button, .download { background: #1b2c40; color: var(--fg); border: 1px solid var(--acc); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-  .controls button:disabled, .download:disabled { opacity: .45; cursor: not-allowed; }
-  .control-status { color: var(--dim); font-size: 12px; min-height: 18px; margin-top: 6px; }
-  .chartwrap { position: relative; }
-  .tooltip { position: absolute; display: none; pointer-events: none; background: #0b1016; border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; white-space: nowrap; font-size: 12px; z-index: 2; }
-  footer { color: var(--dim); font-size: 11.5px; margin: 18px 0 8px; line-height: 1.7; }
-  .hr { color: var(--line); }
+:root { color-scheme:light; --bg:#f3f5f8; --panel:#fff; --fg:#202b3c; --muted:#66748a; --line:#e0e6ef; --soft:#f7f9fc; --accent:#2865df; --good:#167b59; --bad:#c23e43; --warn:#9a6815; --temp:#dd7433; --humidity:#2684cf; --co2:#8660cd; --shadow:0 3px 16px #26324b06; }
+[data-theme="dark"] { color-scheme:dark; --bg:#111721; --panel:#1a2330; --fg:#edf1f8; --muted:#a0adc0; --line:#303d50; --soft:#202c3b; --accent:#75a6ff; --good:#62d6a6; --bad:#ff8388; --warn:#e9bb6a; --temp:#f2a066; --humidity:#69baff; --co2:#bd9aff; --shadow:none; }
+* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+button,input,select { font:inherit; } button { cursor:pointer; } button:disabled,input:disabled { opacity:.48; cursor:not-allowed; } button:focus-visible,input:focus-visible,select:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+button { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px 15px; color:var(--fg); min-height:44px; }
+button:hover:enabled { border-color:var(--accent); } .primary { background:var(--accent); border-color:var(--accent); color:var(--bg); font-weight:600; }
+input,select { min-height:44px; min-width:0; background:var(--soft); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+input[type="number"] { width:106px; } input[type="range"] { padding:0; width:100%; accent-color:var(--accent); }
+.wrap { max-width:1200px; margin:auto; padding:28px 28px 40px; } .topbar,.heading,.card-head,.toolbar,.input-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.topbar { margin-bottom:24px; flex-wrap:wrap; } h1 { margin:0; font-size:24px; letter-spacing:.02em; } h2 { margin:0; font-size:17px; } h3 { margin:0; font-size:15px; } p { margin:0; } .muted { color:var(--muted); } .eyebrow { font-size:11px; letter-spacing:.14em; color:var(--muted); margin-bottom:3px; }
+.top-actions { display:flex; gap:10px; align-items:center; } .connection { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; } .connection::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+.good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .heading { margin:26px 0 12px; flex-wrap:wrap; } .heading p { font-size:12px; color:var(--muted); }
+.metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } .metric,.actuator,.chart-card,.detail-card { background:var(--panel); border:1px solid var(--line); border-radius:15px; box-shadow:var(--shadow); }
+.metric { padding:22px 24px; border-top:3px solid var(--metric); } .metric-name { font-size:13px; color:var(--muted); } .metric-value { font-size:clamp(28px,4.5vw,48px); font-weight:650; line-height:1.25; margin:12px 0; letter-spacing:-.04em; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.unit { font-size:14px; color:var(--muted); margin-left:6px; letter-spacing:0; font-weight:400; } .metric-foot { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:12px; }
+.actuators { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; } .actuator { padding:20px 24px; } .card-head { margin-bottom:14px; } .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; border:1px solid var(--line); border-radius:99px; padding:3px 10px; background:var(--soft); }
+.actuator-info { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; min-height:44px; } .actuator-value { font-size:28px; font-weight:600; font-variant-numeric:tabular-nums; } .switch { min-width:106px; font-weight:600; } .switch[aria-pressed="true"] { color:var(--good); border-color:var(--good); }
+.input-row { justify-content:flex-start; flex-wrap:wrap; } .input-row label { color:var(--muted); font-size:12px; } .control-status { min-height:23px; font-size:12px; color:var(--muted); margin-top:12px; } .brightness { display:grid; grid-template-columns:1fr 100px auto; gap:10px; align-items:center; } .brightness input[type="number"] { width:100%; }
+.trend-tools { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; } .toolbar { flex-wrap:wrap; justify-content:flex-start; } .ranges { display:flex; flex-wrap:wrap; gap:6px; } .ranges button.active { border-color:var(--accent); color:var(--accent); background:var(--soft); } .toolbar .spacer { flex:1; }
+.custom-range { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); } .custom-range label { display:grid; gap:4px; color:var(--muted); font-size:12px; } .custom-range input { width:220px; } [hidden] { display:none!important; }
+.trend-meta { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding-top:12px; color:var(--muted); font-size:12px; } .zoom-buttons { display:flex; gap:6px; } .zoom-buttons button { padding:6px 10px; }
+.chart-card { padding:20px; margin-bottom:14px; } .chart-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px; } .legend { font-size:12px; color:var(--muted); display:flex; flex-wrap:wrap; gap:12px; } .legend span::before { content:""; display:inline-block; width:12px; height:3px; background:var(--series); vertical-align:middle; margin-right:6px; }
+.chartwrap { position:relative; } canvas { display:block; width:100%; height:210px; touch-action:pan-y; } .cursor-line { display:none; position:absolute; top:10px; bottom:32px; border-left:1px dashed var(--muted); pointer-events:none; } .selection { display:none; position:absolute; top:10px; bottom:32px; background:color-mix(in srgb,var(--accent) 15%,transparent); border:1px solid var(--accent); pointer-events:none; }
+.tooltip { display:none; position:absolute; pointer-events:none; border:1px solid var(--line); border-radius:8px; padding:8px 12px; color:var(--fg); background:var(--panel); font-size:12px; white-space:nowrap; box-shadow:0 3px 12px #0002; z-index:2; }
+.bottom { display:grid; grid-template-columns:1fr 1.6fr; gap:16px; margin-top:26px; } .detail-card { padding:20px; min-width:0; } .detail-card h2 { margin-bottom:14px; } dl { margin:0; } .detail-row { display:flex; justify-content:space-between; gap:14px; padding:7px 0; } dt { color:var(--muted); } dd { margin:0; text-align:right; overflow-wrap:anywhere; }
+.alert-list { max-height:280px; overflow:auto; } .alert { border-top:1px solid var(--line); padding:12px 0; } .alert:first-child { border-top:0; } .alert p { font-size:12px; color:var(--muted); margin-top:4px; } footer { margin-top:24px; color:var(--muted); font-size:12px; }
+@media(max-width:680px) { .wrap { padding:18px 12px 28px; } .topbar { gap:14px; } h1 { font-size:21px; } .top-actions { width:100%; justify-content:space-between; } .metrics { gap:8px; } .metric { padding:14px 10px; } .metric-value { font-size:clamp(18px,6vw,26px); letter-spacing:-.05em; margin:10px 0; } .metric-value .unit { display:block; font-size:11px; margin:2px 0 0; } .metric-foot { font-size:11px; gap:3px; } .metric-name { font-size:12px; } .actuators,.bottom { grid-template-columns:1fr; gap:12px; } .actuator { padding:18px; } .chart-card { padding:14px 8px; } .chart-head { padding:0 6px; flex-wrap:wrap; } canvas { height:190px; } .custom-range label { flex:1; min-width:150px; } .custom-range input { width:100%; } .trend-meta { align-items:flex-start; } .brightness { grid-template-columns:1fr 75px auto; } .brightness button { padding:10px; } }
 </style>
 </head>
 <body>
-<div class="wrap">
-
-  <div id="bar">
-    <span id="dot"></span>
-    <span id="state">连接中…</span>
-    <span class="meta" id="age"></span>
-    <span class="spacer"></span>
-    <select id="device" class="meta" style="display:none"></select>
-    <span class="meta" id="link"></span>
-  </div>
-
-  <div class="cards">
-    <div class="card">
-      <div class="label">温度</div>
-      <div class="value"><span id="t">--</span><span class="unit">℃</span></div>
-      <div class="sub">设定 <span id="tgt">--</span> ℃ &nbsp;<span id="t_ok"></span></div>
-    </div>
-    <div class="card">
-      <div class="label">湿度</div>
-      <div class="value"><span id="h">--</span><span class="unit">%</span></div>
-      <div class="sub"><span id="h_ok"></span></div>
-    </div>
-    <div class="card">
-      <div class="label">CO₂</div>
-      <div class="value"><span id="co2">--</span><span class="unit">ppm</span></div>
-      <div class="sub"><span id="co2_ok"></span></div>
-    </div>
-    <div class="card">
-      <div class="label">数据年龄</div>
-      <div class="value"><span id="fresh">--</span><span class="unit">s</span></div>
-      <div class="sub" id="recv">--</div>
-    </div>
-  </div>
-
-  <h2>执行器</h2>
-  <div class="row" id="actuators"></div>
-  <h2>远程控制</h2>
-  <div class="controls">
-    <form id="tempControl"><label>目标温度 <input id="tempInput" type="number" min="10" max="100" step="0.1"> ℃</label><button>设置</button></form>
-    <form id="switchControls">
-      <button type="button" data-command="set_heater" data-target="heaterCtl">加热</button>
-      <button type="button" data-command="set_light" data-target="lightCtl">照明</button>
-      <label>亮度 <input id="brightnessInput" type="number" min="0" max="100" step="1"> %</label>
-      <button type="button" data-command="set_fan" data-target="fanCtl">风扇</button>
-      <button type="button" data-command="set_valve_enabled" data-target="valveCtl">阀门自动</button>
-    </form>
-    <div class="control-status" id="controlStatus"></div>
-  </div>
-
-  <h2>趋势</h2>
-  <div class="chartbox">
-    <div class="head">
-      <span>温度（实线）与设定值（虚线）</span>
-      <span class="ranges" id="ranges"></span>
-    </div>
-    <div class="chartwrap"><canvas id="chartTemp"></canvas><div class="tooltip" id="tipTemp"></div></div>
-  </div>
-  <div class="chartbox">
-    <div class="head"><span>CO₂（设备单位，与屏幕一致）</span><button class="download" id="downloadCsv">下载 CSV</button></div>
-    <div class="chartwrap"><canvas id="chartCo2"></canvas><div class="tooltip" id="tipCo2"></div></div>
-  </div>
-
-  <h2>告警（近 24 小时）</h2>
-  <div id="alerts" class="empty">加载中…</div>
-
-  <footer>
-    只读看板，不含任何控制功能。数值直接来自设备上报，服务器不做单位换算。<br>
-    离线判定：超过 <span id="offlineAfter">30</span> 秒未收到上报即视为离线。
-    <span class="hr">|</span> 页面每 10 秒刷新一次。
-  </footer>
-</div>
-
+<main class="wrap">
+<header class="topbar"><div><p class="eyebrow">INCUBATOR</p><h1>培养箱监测</h1></div><div class="top-actions"><span id="connection" class="connection muted" role="status">连接中</span><select id="device" aria-label="设备" hidden></select><button id="themeToggle" type="button" aria-label="切换主题">深色模式</button></div></header>
+<section class="metrics" aria-label="实时读数">
+<article class="metric" style="--metric:var(--temp)"><p class="metric-name">温度</p><div class="metric-value"><span id="temperature">--</span><span class="unit">℃</span></div><div class="metric-foot"><span>目标 <span id="targetTemperature">--</span> ℃</span><span id="temperatureHealth">等待采样</span></div></article>
+<article class="metric" style="--metric:var(--humidity)"><p class="metric-name">相对湿度</p><div class="metric-value"><span id="humidity">--</span><span class="unit">% RH</span></div><div class="metric-foot"><span id="humidityHealth">等待采样</span></div></article>
+<article class="metric" style="--metric:var(--co2)"><p class="metric-name">CO₂ 浓度</p><div class="metric-value"><span id="co2">--</span><span class="unit">设备单位</span></div><div class="metric-foot"><span id="co2Health">等待采样</span></div></article>
+</section>
+<div class="heading"><h2>设备控制</h2><p id="controlHint">等待设备连接</p></div>
+<section class="actuators" aria-label="执行器状态与远程控制">
+<article class="actuator" data-group="heater"><div class="card-head"><h3>加热</h3><span class="pill" id="heaterState">--</span></div><div class="actuator-info"><div><span class="muted">当前功率 </span><span class="actuator-value" id="heaterPower">--</span><span class="unit">%</span></div><button class="switch" id="heaterToggle" data-group="heater" data-toggle="set_heater" aria-pressed="false" disabled>开启加热</button></div><form id="temperatureForm" class="input-row"><label for="temperatureInput">目标温度</label><input id="temperatureInput" type="number" min="10" max="100" step="0.1" required disabled><span>℃</span><button class="primary" data-group="heater" disabled>应用</button></form><p id="heaterStatus" class="control-status" role="status"></p></article>
+<article class="actuator" data-group="light"><div class="card-head"><h3>照明</h3><span class="pill" id="lightState">--</span></div><div class="actuator-info"><div><span class="muted">当前亮度 </span><span class="actuator-value" id="lightValue">--</span><span class="unit">%</span></div><button class="switch" id="lightToggle" data-group="light" data-toggle="set_light" aria-pressed="false" disabled>开启照明</button></div><form id="brightnessForm"><div class="brightness"><input id="brightnessRange" aria-label="照明亮度滑块" type="range" min="0" max="100" step="1" value="30" disabled><input id="brightnessInput" aria-label="照明亮度百分比" type="number" min="0" max="100" step="1" value="30" required disabled><button class="primary" data-group="light" disabled>应用</button></div></form><p id="lightStatus" class="control-status" role="status"></p></article>
+<article class="actuator" data-group="fan"><div class="card-head"><h3>风扇</h3><span class="pill" id="fanState">--</span></div><div class="actuator-info"><p class="muted">控制循环风扇运行</p><button class="switch" id="fanToggle" data-group="fan" data-toggle="set_fan" aria-pressed="false" disabled>开启风扇</button></div><p id="fanStatus" class="control-status" role="status"></p></article>
+<article class="actuator" data-group="valve"><div class="card-head"><h3>阀门</h3><span class="pill" id="valveState">--</span></div><div class="actuator-info"><p class="muted" id="valveActual">实际阀门：--</p><button class="switch" id="valveToggle" data-group="valve" data-toggle="set_valve_enabled" aria-pressed="false" disabled>开启自动控制</button></div><p id="valveStatus" class="control-status" role="status"></p></article>
+</section>
+<div class="heading"><h2>采样趋势</h2><p>原始采样 · 三图共享时间范围</p></div>
+<section aria-label="历史趋势">
+<div class="trend-tools"><div class="toolbar"><div id="ranges" class="ranges" aria-label="时间范围"></div><button id="customToggle" type="button" aria-expanded="false">自定义时间</button><span class="spacer"></span><button id="downloadCsv" type="button" disabled>下载 CSV</button></div><form id="customForm" class="custom-range" hidden><label>开始时间<input id="fromTime" type="datetime-local" step="1" required></label><label>结束时间<input id="toTime" type="datetime-local" step="1" required></label><button class="primary">查看</button></form><div class="trend-meta"><div><p id="historyStatus" role="status">等待数据</p><p id="windowLabel"></p></div><div class="zoom-buttons"><button id="zoomIn" type="button" aria-label="放大时间范围">放大</button><button id="zoomOut" type="button" aria-label="缩小时间范围">缩小</button><button id="resetZoom" type="button">重置缩放</button></div></div></div>
+<article class="chart-card"><div class="chart-head"><h3>温度</h3><div class="legend"><span style="--series:var(--temp)">实测温度</span><span style="--series:var(--muted)">目标温度 · 虚线</span></div></div><div class="chartwrap"><canvas id="chartTemp" aria-label="温度趋势，拖动选择时间段放大"></canvas><div class="selection"></div><div class="cursor-line"></div><div class="tooltip"></div></div></article>
+<article class="chart-card"><div class="chart-head"><h3>湿度</h3><div class="legend"><span style="--series:var(--humidity)">相对湿度</span></div></div><div class="chartwrap"><canvas id="chartHumidity" aria-label="湿度趋势，拖动选择时间段放大"></canvas><div class="selection"></div><div class="cursor-line"></div><div class="tooltip"></div></div></article>
+<article class="chart-card"><div class="chart-head"><h3>CO₂</h3><div class="legend"><span style="--series:var(--co2)">设备单位 · 量程 0–100000</span></div></div><div class="chartwrap"><canvas id="chartCo2" aria-label="CO2趋势，固定纵轴量程0到100000"></canvas><div class="selection"></div><div class="cursor-line"></div><div class="tooltip"></div></div></article>
+<p class="muted" style="font-size:12px">鼠标悬停或触摸查看采样值；电脑可拖动框选时间段，手机可使用放大按钮。CSV 下载当前查看范围内的原始采样。</p>
+</section>
+<section class="bottom" aria-label="连接详情与告警"><article class="detail-card"><h2>连接详情</h2><dl><div class="detail-row"><dt>设备</dt><dd id="deviceLabel">--</dd></div><div class="detail-row"><dt>远控连接</dt><dd id="wsState">--</dd></div><div class="detail-row"><dt>最近上报</dt><dd id="lastReceived">--</dd></div><div class="detail-row"><dt>数据年龄</dt><dd id="dataAge">--</dd></div><div class="detail-row"><dt>WiFi 信号</dt><dd id="rssi">--</dd></div><div class="detail-row"><dt>内部可用内存</dt><dd id="heap">--</dd></div><div class="detail-row"><dt>固件版本</dt><dd id="firmware">--</dd></div></dl></article><article class="detail-card"><div class="card-head"><h2>告警记录</h2><span class="muted">近 24 小时</span></div><div id="alerts" class="alert-list muted">加载中</div></article></section>
+<footer>数值按设备上报显示；CO₂ 不作单位换算。实时状态每 10 秒刷新，远控通过长连接下发。</footer>
+</main>
 <script>
 "use strict";
-const RANGES = [["1 小时", 1], ["6 小时", 6], ["24 小时", 24], ["7 天", 168]];
-const state = { device: null, hours: 1, devices: [], timer: null, ticks: 0, latest: null };
-
 const $ = (id) => document.getElementById(id);
-const fmt = (v, d = 1) => (v === null || v === undefined || !isFinite(v)) ? "--" : Number(v).toFixed(d);
-const clampNum = (v) => (v === null || v === undefined) ? null : Number(v);
-
-async function api(path) {
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw Object.assign(new Error(res.status), { status: res.status });
-  return res.json();
+const fmt = (v, digits = 1) => v == null || !Number.isFinite(Number(v)) ? "--" : Number(v).toFixed(digits);
+const dateText = (ts) => new Date(ts * 1000).toLocaleString("zh-CN", { hour12:false });
+const RANGES = [["1 小时",1],["6 小时",6],["24 小时",24],["7 天",168]];
+const state = { device:null, latest:null, hours:1, custom:null, zoom:null, busy:new Set(), dirty:new Set(), submitted:new Map(), cache:new Map(), history:null, loading:false, generation:0, controller:null, ticks:0, refreshing:false };
+const charts = [
+  { id:"chartTemp", series:[{ key:"temperature", label:"温度", color:"--temp", unit:"℃", digits:2 },{ key:"target_temperature", label:"目标", color:"--muted", unit:"℃", digits:1, dash:true }] },
+  { id:"chartHumidity", series:[{ key:"humidity", label:"湿度", color:"--humidity", unit:"% RH", digits:1 }] },
+  { id:"chartCo2", min:0, max:100000, series:[{ key:"co2", label:"CO₂", color:"--co2", unit:"设备单位", digits:0 }] }
+];
+async function api(path, signal) {
+  const response = await fetch(path, { cache:"no-store", signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
-
-function badge(el, ok, textOk, textBad, textUnknown) {
-  if (ok === null || ok === undefined) { el.innerHTML = '<span class="badge warn">' + textUnknown + "</span>"; return; }
-  el.innerHTML = ok ? '<span class="badge ok">' + textOk + "</span>"
-                    : '<span class="badge bad">' + textBad + "</span>";
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $("themeToggle").textContent = theme === "dark" ? "浅色模式" : "深色模式";
+  $("themeToggle").setAttribute("aria-pressed", String(theme === "dark"));
+  drawCharts();
 }
-
-function chip(k, v, cls) {
-  return '<div class="chip"><span class="k">' + k + '</span><span class="v ' + (cls || "") + '">' + v + "</span></div>";
+let savedTheme;
+try { savedTheme = localStorage.getItem("incubator-theme"); } catch (_) {}
+setTheme(savedTheme === "dark" || (!savedTheme && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light");
+$("themeToggle").addEventListener("click", () => {
+  const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  setTheme(theme); try { localStorage.setItem("incubator-theme", theme); } catch (_) {}
+});
+function health(id, valid, unavailable = false) {
+  $(id).textContent = unavailable ? "传感器离线" : valid == null ? "状态未知" : valid ? "传感器正常" : "采样故障";
+  $(id).className = unavailable || valid === false ? "bad" : valid ? "good" : "muted";
 }
-
-function renderActuators(L) {
-  const on = (b) => b ? '<span class="on">ON</span>' : '<span class="off">OFF</span>';
-  $("actuators").innerHTML =
-    chip("加热", on(L.heater_on) + (L.heater_pwm === null ? "" : " · " + fmt(L.heater_pct, 0) + "%")) +
-    chip("光照", on(L.light) + (L.light_pct === null ? "" : " · " + L.light_pct + "%")) +
-    chip("风扇", on(L.fan)) +
-    chip("阀门", L.valve ? '<span class="warn">OPEN</span>' : '<span class="off">CLOSED</span>');
+function pill(id, active, on, off) {
+  $(id).textContent = active == null ? "未知" : active ? on : off;
+  $(id).className = "pill " + (active ? "good" : "muted");
 }
-
+function updateControls() {
+  for (const group of ["heater","light","fan","valve"]) {
+    const blocked = !state.latest?.ws_connected || state.busy.has(group);
+    for (const element of document.querySelectorAll(`.actuator[data-group="${group}"] button, .actuator[data-group="${group}"] input`)) element.disabled = blocked;
+  }
+}
+function renderLatest(L) {
+  state.latest = L;
+  $("temperature").textContent = fmt(L.temperature,2); $("humidity").textContent = fmt(L.humidity,1); $("co2").textContent = fmt(L.co2,0);
+  $("targetTemperature").textContent = fmt(L.target_temperature,1);
+  health("temperatureHealth", L.temperature_ok); health("humidityHealth",L.humidity_ok); health("co2Health",L.co2_ok,L.co2_available === false);
+  const connection = $("connection");
+  connection.textContent = L.ws_connected ? "远控已连接" : L.online ? "仅数据上报" : "设备离线";
+  connection.className = "connection " + (L.ws_connected ? "good" : L.online ? "warn" : "muted");
+  $("controlHint").textContent = L.ws_connected ? "点击操作，设备回执确认执行" : "远控未连接，控制暂不可用";
+  pill("heaterState",L.heater_on,"已启用","已停用"); pill("lightState",L.light,"已开启","已关闭"); pill("fanState",L.fan,"运行中","已停止"); pill("valveState",L.valve_enabled,"自动控制允许","自动控制停用");
+  $("heaterPower").textContent = fmt(L.heater_pct,0); $("lightValue").textContent = fmt(L.light_pct,0); $("valveActual").textContent = "实际阀门：" + (L.valve == null ? "未知" : L.valve ? "打开" : "关闭");
+  for (const [id, active, on, off] of [["heaterToggle",L.heater_on,"关闭加热","开启加热"],["lightToggle",L.light,"关闭照明","开启照明"],["fanToggle",L.fan,"关闭风扇","开启风扇"],["valveToggle",L.valve_enabled,"停用自动控制","开启自动控制"]]) {
+    $(id).textContent = active ? on : off; $(id).setAttribute("aria-pressed",String(!!active));
+  }
+  for (const [field, key, input] of [["temperature","target_temperature","temperatureInput"],["brightness","light_pct","brightnessInput"]]) {
+    const submitted = state.submitted.get(field);
+    if (submitted !== undefined && L[key] === submitted && Number($(input).value) === submitted) { state.dirty.delete(field); state.submitted.delete(field); }
+  }
+  if (!state.dirty.has("temperature") && !state.busy.has("heater")) $("temperatureInput").value = L.target_temperature ?? "";
+  if (!state.dirty.has("brightness") && !state.busy.has("light")) { $("brightnessInput").value = L.light_pct ?? 30; $("brightnessRange").value = $("brightnessInput").value; }
+  $("deviceLabel").textContent = L.label || state.device; $("wsState").textContent = L.ws_connected ? "已连接" : "未连接";
+  $("lastReceived").textContent = dateText(L.recv_ts); $("dataAge").textContent = `${L.age_s} 秒`;
+  $("rssi").textContent = L.rssi == null ? "--" : `${L.rssi} dBm`; $("heap").textContent = L.heap_int == null ? "--" : `${Math.round(L.heap_int / 1024)} KB`; $("firmware").textContent = L.firmware_version || "--";
+  updateControls();
+}
 function renderAlerts(rows) {
-  if (!rows.length) { $("alerts").className = "empty"; $("alerts").textContent = "近 24 小时无告警"; return; }
-  const kindName = { offline: "离线", sensor_fault: "传感器故障", low_heap: "内存偏低" };
-  let html = "<table><tr><th>时间</th><th>类型</th><th>详情</th><th>状态</th></tr>";
-  for (const a of rows) {
-    const t = new Date(a.raised_ts * 1000).toLocaleString("zh-CN", { hour12: false });
-    html += "<tr><td>" + t + "</td><td>" + (kindName[a.kind] || a.kind) + "</td><td>" +
-            (a.detail || "") + "</td><td>" +
-            (a.cleared_ts ? '<span class="badge ok">已恢复</span>' : '<span class="badge bad">未恢复</span>') +
-            "</td></tr>";
+  const container = $("alerts"); container.replaceChildren();
+  if (!rows.length) { container.textContent = "近 24 小时无告警"; return; }
+  const names = { offline:"设备离线", sensor_fault:"传感器故障", low_heap:"内存偏低" };
+  for (const row of rows) {
+    const item = document.createElement("div"); item.className = "alert";
+    const head = document.createElement("div"); head.className = "card-head";
+    const name = document.createElement("strong"); name.textContent = names[row.kind] || row.kind;
+    const status = document.createElement("span"); status.className = row.cleared_ts ? "good" : "bad"; status.textContent = row.cleared_ts ? "已恢复" : "未恢复";
+    const info = document.createElement("p"); info.textContent = dateText(row.raised_ts) + (row.detail ? " · " + row.detail : "");
+    head.append(name,status); item.append(head,info); container.append(item);
   }
-  $("alerts").className = "";
-  $("alerts").innerHTML = html + "</table>";
 }
-
-function draw(canvas, points, series, opts) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 150;
-  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-
-  const padL = 46, padR = 10, padT = 8, padB = 20;
-  const x0 = padL, x1 = w - padR, y0 = padT, y1 = h - padB;
-
-  const values = [];
-  for (const s of series) for (const p of points) {
-    const v = clampNum(p[s.key]); if (v !== null && isFinite(v)) values.push(v);
-  }
-  if (!values.length) {
-    ctx.fillStyle = "#8a97a6"; ctx.font = "12px sans-serif";
-    ctx.fillText("暂无数据", x0, (y0 + y1) / 2); return;
-  }
-  let lo = opts.min === undefined ? Math.min.apply(null, values) : opts.min;
-  let hi = opts.max === undefined ? Math.max.apply(null, values) : opts.max;
-  const span = (hi - lo) || Math.max(1, Math.abs(hi) * 0.1);
-  if (opts.min === undefined) lo -= span * 0.15;
-  if (opts.max === undefined) hi += span * 0.15;
-
-  const ts = points.map((p) => p.recv_ts);
-  const t0 = Math.min.apply(null, ts), t1 = Math.max.apply(null, ts);
-  const X = (t) => x1 - ((t1 - t) / ((t1 - t0) || 1)) * (x1 - x0);
-  const Y = (v) => y1 - ((v - lo) / ((hi - lo) || 1)) * (y1 - y0);
-
-  ctx.font = "11px sans-serif"; ctx.textBaseline = "middle";
-  for (let i = 0; i <= 2; i++) {
-    const v = lo + (hi - lo) * (i / 2), y = Y(v);
-    ctx.strokeStyle = "#222d3a"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
-    ctx.fillStyle = "#8a97a6"; ctx.textAlign = "right";
-    ctx.fillText(v.toFixed(opts.decimals === undefined ? 1 : opts.decimals), x0 - 6, y);
-  }
-  ctx.textBaseline = "top"; ctx.textAlign = "left";
-  ctx.fillStyle = "#8a97a6";
-  const tstr = (t) => new Date(t * 1000).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
-  if (t1 > t0) { ctx.fillText(tstr(t0), x0, y1 + 5); ctx.textAlign = "right"; ctx.fillText(tstr(t1), x1, y1 + 5); }
-  else { ctx.fillText(tstr(t0), x0, y1 + 5); }
-
-  for (const s of series) {
-    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.6;
-    ctx.setLineDash(s.dash || []);
-    ctx.beginPath();
-    let started = false;
-    for (const p of points) {
-      const v = clampNum(p[s.key]);
-      if (v === null || !isFinite(v)) { started = false; continue; }
-      const x = X(p.recv_ts), y = Y(v);
-      if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+async function refresh() {
+  if (state.refreshing) return; state.refreshing = true;
+  try {
+    if (!state.device) {
+      const devices = await api("/api/v1/devices");
+      if (!devices.length) { $("connection").textContent = "等待设备上报"; return; }
+      const select = $("device"); select.replaceChildren();
+      for (const device of devices) { const option = document.createElement("option"); option.value = device.device_id; option.textContent = device.label || device.device_id; select.append(option); }
+      select.hidden = devices.length < 2; state.device = devices[0].device_id;
     }
-    ctx.stroke(); ctx.setLineDash([]);
-  }
-  canvas._plot = { points, series, x0, x1, t0, t1 };
+    const device = state.device;
+    const L = await api(`/api/v1/devices/${encodeURIComponent(device)}/latest`);
+    if (device !== state.device) return;
+    renderLatest(L);
+    if (state.ticks++ % 3 === 0) {
+      loadHistory();
+      try { const alerts = await api(`/api/v1/devices/${encodeURIComponent(device)}/alerts?hours=24`); if (device === state.device) renderAlerts(alerts.alerts); }
+      catch (_) { $("alerts").textContent = "告警加载失败，下次刷新重试"; }
+    }
+  } catch (error) {
+    $("connection").textContent = "网页无法连接服务器"; $("connection").className = "connection bad";
+    state.latest = null; updateControls(); console.warn("refresh failed",error);
+  } finally { state.refreshing = false; }
 }
-
-function bindTooltip(canvas, tooltip) {
-  canvas.addEventListener("mousemove", (ev) => {
-    const plot = canvas._plot; if (!plot || !plot.points.length) return;
-    const rect = canvas.getBoundingClientRect(), x = ev.clientX - rect.left;
-    const t = plot.t0 + (x - plot.x0) / ((plot.x1 - plot.x0) || 1) * (plot.t1 - plot.t0);
-    let nearest = plot.points[0];
-    for (const point of plot.points) if (Math.abs(point.recv_ts - t) < Math.abs(nearest.recv_ts - t)) nearest = point;
-    const rows = plot.series.map((s) => {
-      const value = nearest[s.key];
-      return value === null || value === undefined ? "" : s.label + "：" + fmt(value, s.decimals ?? 1);
-    }).filter(Boolean);
-    tooltip.innerHTML = new Date(nearest.recv_ts * 1000).toLocaleString("zh-CN", { hour12: false }) + "<br>" + rows.join("<br>");
-    tooltip.style.display = "block";
-    tooltip.style.left = Math.min(Math.max(4, x + 8), rect.width - tooltip.offsetWidth - 4) + "px";
-    tooltip.style.top = "6px";
-  });
-  canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
-}
-
-async function loadHistory() {
-  if (!state.device) return;
+async function sendCommand(group, command, params, dirtyField) {
+  if (!state.latest?.ws_connected || state.busy.has(group)) return;
+  const device = state.device;
+  state.busy.add(group); updateControls(); const status = $(group + "Status"); status.textContent = "发送中…";
   try {
-    const data = await api("/api/v1/devices/" + encodeURIComponent(state.device) +
-                           "/history?hours=" + state.hours);
-    draw($("chartTemp"), data.points, [
-      { key: "target_temperature", label: "设定值", color: "#4aa8ff", width: 1.2, dash: [5, 4], decimals: 1 },
-      { key: "temperature", label: "温度", color: "#e5544b", width: 1.8, decimals: 2 },
-    ], { decimals: 1 });
-    draw($("chartCo2"), data.points, [
-      { key: "co2", label: "CO₂", color: "#35c07a", width: 1.4, decimals: 0 },
-    ], { decimals: 0, min: 0, max: 100000 });
-  } catch (err) {
-    console.warn("history failed", err);
-  }
-}
-
-async function sendCommand(command, params) {
-  if (!state.device) return;
-  const status = $("controlStatus");
-  status.textContent = "命令发送中…";
-  try {
-    const response = await fetch("/api/v1/devices/" + encodeURIComponent(state.device) + "/commands", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "dashboard" },
-      body: JSON.stringify({ command, params })
-    });
-    if (!response.ok) throw new Error(await response.text());
-    const accepted = await response.json();
+    const response = await fetch(`/api/v1/devices/${encodeURIComponent(device)}/commands`, { method:"POST", headers:{ "Content-Type":"application/json", "X-Requested-With":"dashboard" }, body:JSON.stringify({ command,params }) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const accepted = await response.json(); status.textContent = "等待设备执行…";
     const deadline = Date.now() + 65000;
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const result = await api("/api/v1/devices/" + encodeURIComponent(state.device) + "/commands/" + accepted.command_id);
-      if (result.status === "applied") { status.textContent = "设备已执行"; refresh(); return; }
-      if (result.status === "rejected" || result.status === "expired") { status.textContent = "设备未执行：" + result.status; return; }
-    }
-    status.textContent = "命令超时";
-  } catch (err) {
-    status.textContent = "命令失败";
-    console.warn("command failed", err);
-  }
-}
-
-async function refresh() {
-  try {
-    if (!state.devices.length) {
-      state.devices = await api("/api/v1/devices");
-      const sel = $("device");
-      if (state.devices.length > 1) {
-        sel.innerHTML = state.devices.map((d) =>
-          '<option value="' + d.device_id + '">' + (d.label || d.device_id) + "</option>").join("");
-        sel.style.display = ""; state.device = sel.value;
-      } else {
-        state.device = state.devices.length ? state.devices[0].device_id : null;
+      await new Promise(resolve => setTimeout(resolve,1000));
+      if (device !== state.device) return;
+      const result = await api(`/api/v1/devices/${encodeURIComponent(device)}/commands/${accepted.command_id}`);
+      if (result.status === "applied") {
+        status.textContent = "设备已执行 · 等待上报刷新实际状态";
+        if (dirtyField) { state.dirty.add(dirtyField); state.submitted.set(dirtyField,dirtyField === "temperature" ? params.value : params.brightness); }
+        refresh(); return;
       }
+      if (["rejected","expired"].includes(result.status)) { status.textContent = "设备未执行：" + (result.ack_reason || (result.status === "expired" ? "命令过期" : "设备拒绝")); return; }
     }
-
-    if (!state.device) {
-      $("bar").className = ""; $("state").textContent = "尚无设备上报";
-      return;
+    status.textContent = "等待回执超时，请检查设备连接";
+  } catch (error) { status.textContent = "命令失败：" + error.message; }
+  finally { state.busy.delete(group); updateControls(); }
+}
+$("temperatureInput").addEventListener("input",() => state.dirty.add("temperature"));
+$("temperatureForm").addEventListener("submit",event => { event.preventDefault(); sendCommand("heater","set_temperature",{ value:Number($("temperatureInput").value) },"temperature"); });
+for (const id of ["brightnessRange","brightnessInput"]) $(id).addEventListener("input",() => { state.dirty.add("brightness"); $(id === "brightnessInput" ? "brightnessRange" : "brightnessInput").value = $(id).value; });
+$("brightnessForm").addEventListener("submit",event => { event.preventDefault(); sendCommand("light","set_light",{ enabled:!!state.latest?.light, brightness:Number($("brightnessInput").value) },"brightness"); });
+for (const button of document.querySelectorAll("[data-toggle]")) button.addEventListener("click",() => {
+  const group = button.dataset.group, fields = { heater:"heater_on", light:"light", fan:"fan", valve:"valve_enabled" };
+  const enabled = !state.latest?.[fields[group]], params = { enabled };
+  if (group === "light") {
+    if (!$("brightnessInput").reportValidity()) return;
+    params.brightness = Number($("brightnessInput").value);
+    if (enabled && params.brightness === 0) { $("lightStatus").textContent = "开启照明前请设置大于 0 的亮度"; return; }
+  }
+  sendCommand(group,button.dataset.toggle,params);
+});
+function lowerBound(points, timestamp) {
+  let lo = 0, hi = points.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (points[mid].recv_ts < timestamp) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+function currentWindow() { return state.zoom || (state.history ? [state.history.from,state.history.to] : null); }
+function visiblePoints() {
+  const range = currentWindow(), points = state.history?.points || [];
+  if (!range) return [];
+  return points.slice(lowerBound(points,range[0]),lowerBound(points,range[1] + 1));
+}
+function drawCharts() {
+  const range = currentWindow(); if (!range) return;
+  const points = visiblePoints(); const styles = getComputedStyle(document.documentElement);
+  $("windowLabel").textContent = dateText(range[0]) + " — " + dateText(range[1]);
+  $("downloadCsv").disabled = state.loading;
+  for (const chart of charts) {
+    const canvas = $(chart.id);
+    const w = canvas.clientWidth || 600, h = canvas.clientHeight || 210, dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext("2d"); ctx.scale(dpr,dpr);
+    const x0 = 58, x1 = w - 14, y0 = 10, y1 = h - 32;
+    let min = Infinity, max = -Infinity;
+    for (const point of points) for (const series of chart.series) { const v = point[series.key]; if (v != null && Number.isFinite(v)) { min = Math.min(min,v); max = Math.max(max,v); } }
+    const empty = min === Infinity;
+    if (empty) { min = 0; max = 1; }
+    const margin = Math.max((max - min) * .12, chart.id === "chartTemp" ? .2 : 1);
+    min = chart.min ?? min - margin; max = chart.max ?? max + margin;
+    const X = t => x0 + (t - range[0]) / Math.max(1,range[1] - range[0]) * (x1 - x0);
+    const Y = v => y1 - (v - min) / (max - min) * (y1 - y0);
+    ctx.font = '11px "Segoe UI", sans-serif'; ctx.fillStyle = styles.getPropertyValue("--muted"); ctx.strokeStyle = styles.getPropertyValue("--line"); ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) { const v = min + (max - min) * i / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.textAlign = "right"; ctx.fillText(chart.id === "chartCo2" ? String(Math.round(v)) : v.toFixed(1),x0 - 8,y + 4); }
+    for (let i = 0; i <= 3; i++) {
+      const ts = range[0] + (range[1] - range[0]) * i / 3;
+      const label = new Date(ts * 1000).toLocaleString("zh-CN", { ...(range[1] - range[0] > 86400 ? { month:"2-digit",day:"2-digit" } : {}), hour:"2-digit", minute:"2-digit", hour12:false });
+      ctx.textAlign = i === 0 ? "left" : i === 3 ? "right" : "center"; ctx.fillText(label,X(ts),h - 9);
     }
-
-    const L = await api("/api/v1/devices/" + encodeURIComponent(state.device) + "/latest");
-    state.latest = L;
-    const bar = $("bar");
-    bar.className = L.online ? "online" : "offline";
-    $("state").textContent = L.online ? "在线" : "离线 · 数据已过期";
-    $("age").textContent = (L.label ? L.label + " · " : "") + "设备 " + state.device;
-
-    $("t").textContent = fmt(L.temperature);
-    $("tgt").textContent = fmt(L.target_temperature);
-    $("h").textContent = fmt(L.humidity);
-    $("co2").textContent = L.co2 === null ? "--" : String(L.co2);
-    badge($("t_ok"), L.temperature_ok, "温度 OK", "温度故障", "温度未知");
-    badge($("h_ok"), L.humidity_ok, "湿度 OK", "湿度故障", "湿度未知");
-    const co2Text = L.co2_available === false ? "传感器离线" : "CO₂ OK";
-    badge($("co2_ok"), L.co2_available === false ? false : L.co2_ok, co2Text, "CO₂ 故障", "CO₂ 未知");
-
-    $("fresh").textContent = L.age_s;
-    $("recv").textContent = new Date(L.recv_ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
-    $("link").innerHTML = "RSSI " + (L.rssi === null ? "--" : L.rssi + " dBm") +
-      " &nbsp;·&nbsp; 堆 " + (L.heap_int !== null && L.heap_int !== undefined
-        ? Math.round(L.heap_int / 1024) + " KB 内部"
-        : (L.heap_free === null ? "--" : Math.round(L.heap_free / 1024) + " KB")) +
-      " &nbsp;·&nbsp; fw " + (L.firmware_version || "--");
-    $("offlineAfter").textContent = L.offline_after_s;
-    $("tempInput").value = L.target_temperature ?? "";
-    $("brightnessInput").value = L.light_pct ?? 0;
-    for (const button of document.querySelectorAll("#switchControls button")) button.disabled = !L.online;
-    $("tempInput").disabled = !L.online;
-    $("brightnessInput").disabled = !L.online;
-    const controlLabels = {
-      heaterCtl: L.heater_on ? "关闭加热" : "开启加热",
-      lightCtl: L.light ? "关闭照明" : "开启照明",
-      fanCtl: L.fan ? "关闭风扇" : "开启风扇",
-      valveCtl: L.valve_enabled ? "关闭阀门自动" : "开启阀门自动"
-    };
-    for (const button of document.querySelectorAll("#switchControls button")) {
-      button.textContent = controlLabels[button.dataset.target] || button.textContent;
+    ctx.save(); ctx.beginPath(); ctx.rect(x0,y0,x1 - x0,y1 - y0); ctx.clip();
+    if (!empty) for (const series of chart.series) {
+      ctx.strokeStyle = styles.getPropertyValue(series.color); ctx.lineWidth = series.dash ? 1.2 : 1.5; ctx.setLineDash(series.dash ? [5,4] : []); ctx.beginPath(); let started = false;
+      for (const point of points) {
+        const v = point[series.key]; if (v == null || !Number.isFinite(v)) { started = false; continue; }
+        if (started) ctx.lineTo(X(point.recv_ts),Y(v)); else { ctx.moveTo(X(point.recv_ts),Y(v)); started = true; }
+      }
+      ctx.stroke();
+      if (points.length === 1 && points[0][series.key] != null) { ctx.fillStyle = styles.getPropertyValue(series.color); ctx.beginPath(); ctx.arc(X(points[0].recv_ts),Y(points[0][series.key]),3,0,Math.PI * 2); ctx.fill(); }
     }
-
-    renderActuators(L);
-    await api("/api/v1/devices/" + encodeURIComponent(state.device) + "/alerts?hours=24")
-      .then((d) => renderAlerts(d.alerts)).catch(() => {});
-
-    state.ticks++;
-    if (state.ticks % 3 === 1) loadHistory();   // history every ~30s
-  } catch (err) {
-    const bar = $("bar");
-    bar.className = "offline";
-    if (err.status === 404) { $("state").textContent = "等待设备首次上报"; }
-    else { $("state").textContent = "无法连接服务器"; }
-    console.warn("refresh failed", err);
+    ctx.restore();
+    if (empty) { ctx.fillStyle = styles.getPropertyValue("--muted"); ctx.textAlign = "center"; ctx.fillText("该时间段暂无采样",(x0+x1)/2,(y0+y1)/2); }
+    canvas._plot = { points,x0,x1,from:range[0],to:range[1] };
   }
 }
-
-(function init() {
-  bindTooltip($("chartTemp"), $("tipTemp"));
-  bindTooltip($("chartCo2"), $("tipCo2"));
-  $("tempControl").addEventListener("submit", (ev) => {
-    ev.preventDefault(); sendCommand("set_temperature", { value: Number($("tempInput").value) });
-  });
-  $("switchControls").addEventListener("click", (ev) => {
-    const button = ev.target.closest("button"); if (!button || button.disabled) return;
-    const current = state.latest || {};
-    const currentValue = { heaterCtl: !!current.heater_on, lightCtl: !!current.light, fanCtl: !!current.fan, valveCtl: !!current.valve_enabled }[button.dataset.target];
-    const enabled = !currentValue;
-    const params = button.dataset.command === "set_light"
-      ? { enabled, brightness: Number($("brightnessInput").value || 100) } : { enabled };
-    sendCommand(button.dataset.command, params);
-  });
-  $("downloadCsv").addEventListener("click", () => {
-    if (state.device) window.location.href = "/api/v1/devices/" + encodeURIComponent(state.device) + "/export.csv?hours=" + state.hours;
-  });
-  $("ranges").innerHTML = RANGES.map(([label, hours], i) =>
-    '<button data-hours="' + hours + '"' + (i === 0 ? ' class="active"' : "") + ">" + label + "</button>").join("");
-  $("ranges").addEventListener("click", (ev) => {
-    const btn = ev.target.closest("button"); if (!btn) return;
-    state.hours = Number(btn.dataset.hours);
-    for (const b of $("ranges").children) b.classList.toggle("active", b === btn);
-    loadHistory();
-  });
-  $("device").addEventListener("change", () => {
-    state.device = $("device").value; state.ticks = 0; refresh();
-  });
-  refresh();
-  state.timer = setInterval(refresh, 10000);
-})();
+function hideTooltips() { for (const chart of charts) for (const el of $(chart.id).parentElement.querySelectorAll(".tooltip,.cursor-line")) el.style.display = "none"; }
+function showTooltips(timestamp) {
+  for (const chart of charts) {
+    const canvas = $(chart.id), plot = canvas._plot; if (!plot?.points.length) continue;
+    const i = lowerBound(plot.points,timestamp), a = plot.points[Math.min(i,plot.points.length - 1)], b = plot.points[Math.max(0,i - 1)];
+    const point = Math.abs(a.recv_ts - timestamp) < Math.abs(b.recv_ts - timestamp) ? a : b;
+    const tooltip = canvas.parentElement.querySelector(".tooltip"), line = canvas.parentElement.querySelector(".cursor-line");
+    const x = plot.x0 + (point.recv_ts - plot.from) / Math.max(1,plot.to - plot.from) * (plot.x1 - plot.x0);
+    line.style.display = "block"; line.style.left = x + "px";
+    tooltip.replaceChildren(); tooltip.append(document.createTextNode(dateText(point.recv_ts)));
+    for (const series of chart.series) tooltip.append(document.createElement("br"),document.createTextNode(`${series.label}：${fmt(point[series.key],series.digits)} ${series.unit}`));
+    tooltip.style.display = "block"; tooltip.style.top = "4px";
+    tooltip.style.left = Math.max(0,Math.min(x + 10,canvas.clientWidth - tooltip.offsetWidth)) + "px";
+  }
+}
+for (const chart of charts) {
+  const canvas = $(chart.id); let drag = null;
+  const coordinate = event => { const p = canvas._plot; if (!p) return null; const x = Math.max(p.x0,Math.min(p.x1,event.clientX - canvas.getBoundingClientRect().left)); return { x, t:p.from + (x - p.x0)/(p.x1 - p.x0)*(p.to - p.from) }; };
+  canvas.addEventListener("pointerdown",event => { const pos = coordinate(event); if (!pos) return; showTooltips(pos.t); if (event.pointerType === "mouse" && event.button === 0) { drag = pos; canvas.setPointerCapture(event.pointerId); } });
+  canvas.addEventListener("pointermove",event => { const pos = coordinate(event); if (!pos) return; showTooltips(pos.t); if (drag) { const selection = canvas.parentElement.querySelector(".selection"); selection.style.display = "block"; selection.style.left = Math.min(pos.x,drag.x) + "px"; selection.style.width = Math.abs(pos.x-drag.x) + "px"; } });
+  canvas.addEventListener("pointerup",event => { const pos = coordinate(event); if (drag && pos && Math.abs(pos.x-drag.x)>12) { state.zoom = [Math.floor(Math.min(pos.t,drag.t)),Math.ceil(Math.max(pos.t,drag.t))]; drawCharts(); } drag = null; canvas.parentElement.querySelector(".selection").style.display = "none"; });
+  canvas.addEventListener("pointercancel",() => { drag = null; canvas.parentElement.querySelector(".selection").style.display = "none"; hideTooltips(); });
+  canvas.addEventListener("pointerleave",event => { if (!drag && event.pointerType === "mouse") hideTooltips(); });
+}
+function zoom(factor) {
+  const range = currentWindow(); if (!range || !state.history) return;
+  const center = (range[0]+range[1])/2, span = Math.min(state.history.to-state.history.from,Math.max(60,(range[1]-range[0])*factor));
+  const start = Math.max(state.history.from,Math.min(center-span/2,state.history.to-span));
+  state.zoom = [Math.floor(start),Math.ceil(start+span)]; hideTooltips(); drawCharts();
+}
+$("zoomIn").addEventListener("click",() => zoom(.5)); $("zoomOut").addEventListener("click",() => zoom(2));
+$("resetZoom").addEventListener("click",() => { state.zoom = null; hideTooltips(); drawCharts(); });
+function invalidateHistory() {
+  state.generation++; state.controller?.abort(); state.loading = false; state.zoom = null; state.history = null; hideTooltips();
+  for (const chart of charts) { const canvas = $(chart.id); canvas._plot = null; canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height); }
+  $("downloadCsv").disabled = true;
+}
+async function loadHistory() {
+  if (!state.device || state.loading) return;
+  const device = state.device, generation = state.generation, key = device + ":" + (state.custom ? state.custom.join(":") : state.hours);
+  const now = Math.floor(Date.now()/1000), range = state.custom || [now-state.hours*3600,now];
+  const cached = state.cache.get(key);
+  if (cached) { state.history = cached; drawCharts(); }
+  if (state.custom && cached) { $("historyStatus").textContent = `${cached.points.length.toLocaleString()} 个原始采样点`; return; }
+  state.loading = true; $("downloadCsv").disabled = true;
+  const controller = new AbortController(); state.controller = controller;
+  try {
+    let cursor = cached?.cursor || null, snapshot = null, additions = [];
+    do {
+      const query = new URLSearchParams({ from_ts:range[0], to_ts:range[1], limit:5000 });
+      if (cursor) query.set("cursor",cursor); if (snapshot !== null) query.set("snapshot_id",snapshot);
+      const page = await api(`/api/v1/devices/${encodeURIComponent(device)}/history?${query}`,controller.signal);
+      if (generation !== state.generation) return;
+      snapshot = page.snapshot_id; additions.push(...page.points); cursor = page.next_cursor;
+      $("historyStatus").textContent = `加载原始采样：${((cached?.points.length || 0)+additions.length).toLocaleString()} 点…`;
+      if (!cursor) {
+        const old = cached?.points || [], points = old.slice(lowerBound(old,range[0])).concat(additions);
+        const entry = { points, from:range[0], to:range[1], cursor:page.last_cursor || cached?.cursor || null };
+        state.cache.delete(key); state.cache.set(key,entry);
+        if (state.cache.size > 8) state.cache.delete(state.cache.keys().next().value);
+        state.history = entry;
+      }
+    } while (cursor);
+    $("historyStatus").textContent = `${state.history.points.length.toLocaleString()} 个原始采样点 · 未取平均`;
+  } catch (error) { if (error.name !== "AbortError" && generation === state.generation) { $("historyStatus").textContent = "数据加载失败，请重新选择时间范围重试"; console.warn("history failed",error); } }
+  finally { if (generation === state.generation) { state.loading = false; drawCharts(); } }
+}
+for (const [label,hours] of RANGES) {
+  const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.dataset.hours = hours; button.classList.toggle("active",hours === state.hours);
+  button.addEventListener("click",() => { invalidateHistory(); state.hours = hours; state.custom = null; for (const b of $("ranges").children) b.classList.toggle("active",b === button); loadHistory(); }); $("ranges").append(button);
+}
+$("customToggle").addEventListener("click",() => { const hidden = !$("customForm").hidden; $("customForm").hidden = hidden; $("customToggle").setAttribute("aria-expanded",String(!hidden)); });
+function localInputDate(ts) { const date = new Date(ts*1000); return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,19); }
+$("fromTime").value = localInputDate(Date.now()/1000 - 86400); $("toTime").value = localInputDate(Date.now()/1000);
+$("customForm").addEventListener("submit",event => {
+  event.preventDefault(); const from = Math.floor(new Date($("fromTime").value).getTime()/1000), to = Math.floor(new Date($("toTime").value).getTime()/1000);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to-from > 30*86400) { $("historyStatus").textContent = "请选择有效的起止时间，范围不超过 30 天"; return; }
+  invalidateHistory(); state.custom = [from,to]; for (const b of $("ranges").children) b.classList.remove("active"); loadHistory();
+});
+$("downloadCsv").addEventListener("click",() => { const range = currentWindow(); if (!range || !state.device) return; location.href = `/api/v1/devices/${encodeURIComponent(state.device)}/export.csv?` + new URLSearchParams({ from_ts:range[0],to_ts:range[1] }); });
+$("device").addEventListener("change",() => { invalidateHistory(); state.device = $("device").value; state.latest = null; state.dirty.clear(); state.submitted.clear(); state.ticks = 0; updateControls(); refresh(); loadHistory(); });
+let resizeFrame; window.addEventListener("resize",() => { cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(drawCharts); });
+refresh(); setInterval(refresh,10000);
 </script>
 </body>
 </html>

@@ -236,14 +236,14 @@ try:
     check("sample count matches", devices[0]["samples"] == 8, devices[0]["samples"])
     check("device online", devices[0]["online"] is True)
 
-    print("--- history and downsampling ---")
+    print("--- raw history and optional downsampling ---")
     hist = body(http("GET", "/api/v1/devices/incubator-001/history?hours=1")[1])
     check("history 1h is raw (no bucket)", hist["step_s"] is None, hist["step_s"])
     check("history returns points", hist["count"] == 8, hist["count"])
     stamps = [p["recv_ts"] for p in hist["points"]]
     check("history points ascend", stamps == sorted(stamps))
     hist24 = body(http("GET", "/api/v1/devices/incubator-001/history?hours=24")[1])
-    check("history 24h uses 60s buckets", hist24["step_s"] == 60, hist24["step_s"])
+    check("history 24h is raw", hist24["step_s"] is None, hist24["step_s"])
     check("24h window covers the backdated rows", hist24["count"] >= 1, hist24["count"])
     explicit = body(http("GET", "/api/v1/devices/incubator-001/history?hours=2&step=300")[1])
     check("explicit step honoured", explicit["step_s"] == 300, explicit["step_s"])
@@ -256,6 +256,65 @@ try:
           http("GET", "/api/v1/devices/incubator-001/history?hours=0")[0] == 400)
     check("history rejects step<5",
           http("GET", "/api/v1/devices/incubator-001/history?step=1")[0] == 400)
+
+    print("--- complete seven-day raw history ---")
+    anchor = int(time.time()) - 20
+    start = anchor - (60480 - 1) * 10
+    fixture = []
+    for i in range(60480):
+        stamp = start + (4998 if i in (4999, 5000) else i) * 10
+        fixture.append(("history-test", stamp, None if i == 333 else 35.12345 if i % 2 else 42.98765,
+                        45.6789, 100000 if i == 4999 else 51000, 37.0))
+    conn = sqlite3.connect(DB_PATH)
+    conn.executemany(
+        "INSERT INTO telemetry(device_id, recv_ts, temperature, humidity, co2, target_temperature)"
+        " VALUES (?, ?, ?, ?, ?, ?)", fixture,
+    )
+    conn.commit()
+    expected_ids = [row[0] for row in conn.execute(
+        "SELECT id FROM telemetry WHERE device_id='history-test' ORDER BY recv_ts, id")]
+    conn.close()
+    page = body(http("GET", f"/api/v1/devices/history-test/history?from_ts={start}&to_ts={anchor}&limit=5000")[1])
+    check("7d is raw and first page is bounded", page["step_s"] is None and page["count"] == 5000)
+    fixed_from, fixed_to, snapshot = page["from_ts"], page["to_ts"], page["snapshot_id"]
+    collected = list(page["points"])
+    # A sample written between pages must not enter this fixed snapshot.
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("INSERT INTO telemetry(device_id, recv_ts, temperature) VALUES ('history-test', ?, 80)", (anchor,))
+    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+    conn.close()
+    while page["next_cursor"]:
+        page = body(http("GET", "/api/v1/devices/history-test/history?"
+                         f"from_ts={fixed_from}&to_ts={fixed_to}&snapshot_id={snapshot}"
+                         f"&limit=5000&cursor={page['next_cursor']}")[1])
+        collected.extend(page["points"])
+    check("all 60480 points returned without duplicate or omission",
+          [p["sample_id"] for p in collected] == expected_ids, len(collected))
+    check("snapshot excludes concurrent insert", new_id not in [p["sample_id"] for p in collected])
+    check("raw spike and decimal precision preserved",
+          collected[4999]["co2"] == 100000 and collected[5001]["temperature"] == fixture[5001][2])
+    check("raw null preserved", collected[333]["temperature"] is None)
+    query24 = f"from_ts={anchor-86399}&to_ts={anchor}&limit=5000&snapshot_id={snapshot}"
+    day = body(http("GET", "/api/v1/devices/history-test/history?" + query24)[1])
+    day_points = list(day["points"])
+    while day["next_cursor"]:
+        day = body(http("GET", "/api/v1/devices/history-test/history?" + query24 +
+                        "&cursor=" + day["next_cursor"])[1])
+        day_points.extend(day["points"])
+    check("24h returns all 8640 original points", len(day_points) == 8640, len(day_points))
+    incremental = body(http("GET", "/api/v1/devices/history-test/history?"
+                           f"from_ts={fixed_from}&to_ts={fixed_to}&cursor={page['last_cursor']}")[1])
+    check("incremental refresh returns only new sample",
+          [p["sample_id"] for p in incremental["points"]] == [new_id])
+    range_query = f"from_ts={start+49980}&to_ts={start+49990}"
+    status, raw = http("GET", "/api/v1/devices/history-test/export.csv?" + range_query)
+    check("CSV respects exact range and keeps simultaneous samples",
+          status == 200 and len(raw.decode("utf-8-sig").splitlines()) == 4)
+    check("history rejects incomplete range", http("GET", "/api/v1/devices/history-test/history?from_ts=1")[0] == 400)
+    check("history rejects reversed range", http("GET", "/api/v1/devices/history-test/history?from_ts=2&to_ts=1")[0] == 400)
+    check("history rejects invalid cursor", http("GET", "/api/v1/devices/history-test/history?cursor=invalid")[0] == 400)
+    check("CSV rejects ranges over 30 days", http("GET", "/api/v1/devices/history-test/export.csv?from_ts=1&to_ts=3000000")[0] == 400)
 
     print("--- not found and static dashboard ---")
     check("unknown device latest -> 404",
