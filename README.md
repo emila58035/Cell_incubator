@@ -10,6 +10,7 @@
 | 日常使用：看数据、设备上线、排障 | [`docs/REMOTE_ACCESS_GUIDE.md`](docs/REMOTE_ACCESS_GUIDE.md) |
 | 拿到仓库权限后：拿凭据、构建、烧录、注意事项 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) |
 | 服务器端部署、API 契约与运维 | [`server/README.md`](server/README.md) |
+| 树莓派相机拍照、定时任务与照片管理的开发方案 | [`docs/CAMERA_CAPTURE_PLAN.md`](docs/CAMERA_CAPTURE_PLAN.md) |
 | AI 编码代理的结构维护规则 | [`AGENTS.md`](AGENTS.md) |
 
 ## 硬件
