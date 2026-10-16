@@ -61,6 +61,7 @@ install -d -o root      -g root      -m 0700 "$CERT_DIR"
 
 log "application code"
 install -o incubator -g incubator -m 0644 "$SRC/app.py"      "$APP_DIR/app.py"
+install -o incubator -g incubator -m 0644 "$SRC/camera_api.py" "$APP_DIR/camera_api.py"
 install -o incubator -g incubator -m 0644 "$SRC/schema.sql"  "$APP_DIR/schema.sql"
 [ -f "$SRC/README.md" ] && install -o incubator -g incubator -m 0644 "$SRC/README.md" "$APP_DIR/README.md"
 rm -rf "$APP_DIR/static" "$APP_DIR/tests"

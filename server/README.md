@@ -250,3 +250,47 @@ Serial.printf("[CO2] Reading OK: %lu ppm ...", scaledPpm);   // 打印成 ppm，
 | 3 | 看板的 `co2_pct` 换算显示（等 #1 确认） | P3 |
 | 4 | WebSocket 远控实机联调（需上传本目录并烧录对应固件） | 固件/服务器 |
 | 5 | ICP 备案后可切域名 + LE 证书（**可选**，只为消除浏览器证书警告） | 可选 |
+
+## 10. 相机手动拍照（第一项，已完成本地模拟验证）
+
+已实现相机独立 WebSocket、手动拍照任务、HTTP 单次图片上传、任务状态查询和原图读取下载。定时调度、任务超时及重启恢复、图库页面、环境数据关联和批量删除尚未实现；完整目标见 `../docs/CAMERA_CAPTURE_PLAN.md`。尚未进行真实摄像头与公网 Nginx 联调。
+
+新增文件：`camera_api.py`；数据库新增 `camera_captures` 和 `camera_photos`。更新时需重复应用 `schema.sql`，部署脚本会安装新模块。相机测试依赖仓库中的开发模拟器，从完整仓库运行，不改变仅打包 `server/` 的部署方式。
+
+### 配置
+
+| 环境变量 | 当前默认值 | 用途 |
+|---|---|---|
+| `INCUBATOR_CAMERA_ID` | `camera-001` | 相机设备标识，必须对应现有 devices.json 中的独立 Token |
+| `INCUBATOR_CAMERA_PHOTOS` | 数据库所在目录下的 `photos/` | 原图目录，服务账号需有写权限 |
+| `INCUBATOR_CAMERA_OFFLINE_S` | `45` | 心跳离线判断秒数，开发暂定值 |
+| `INCUBATOR_CAMERA_MAX_BYTES` | `16777216`（16 MiB） | 单张上传上限，开发暂定值 |
+
+相机 Token 放入现有设备配置，不写入数据库。不要覆盖原有 ESP32 的 Token。图片暂支持 JPEG 和 PNG，硬件格式尚未确定；只检查文件头匹配声明类型，不修改图片内容、不单独记录尺寸或文件大小。
+
+### 当前通信契约
+
+- WebSocket `/api/v1/camera-stream`：Bearer 必须属于配置的相机设备。
+- 服务器先返回 `{"type":"connected","device_id":"camera-001"}`。
+- 相机发送 `{"type":"hello","busy":false}` 后才可接受任务；心跳为 `{"type":"heartbeat","busy":false}`，执行中报告 `busy:true`。
+- 手动 `POST /api/v1/camera/captures`：成功为 `201`，返回任务编号及 `pending` 状态；离线为 `503`，设备忙或未就绪为 `409`，响应含失败任务编号和原因。
+- 服务器下发 `{"type":"capture","task_id":"..."}`。
+- 相机发送 `{"type":"capture_status","task_id":"...","status":"capturing"}`，再发送 `uploading`，服务器各返回 `capture_status_ack`；失败时发送 `failed` 和 `reason`。
+- 相机单次 `POST /api/v1/camera/captures/{task_id}/image?captured_at=<Unix秒，可带小数>`，Bearer 鉴权，正文为原始图片字节，`Content-Type` 为 `image/jpeg` 或 `image/png`。无需 multipart 依赖。
+- 保存成功为 `201`，返回照片编号、拍摄时间、文件名和 `file_url`。服务器保存后才将任务置为 `completed`；相机不能自行报告完成。
+- `GET /api/v1/camera/status` 返回在线、就绪、忙状态与当前任务编号；`GET /api/v1/camera/captures/{task_id}` 返回任务状态。
+- `GET /api/v1/camera/photos/{photo_id}` 获取照片信息；`GET /api/v1/camera/photos/{photo_id}/file` 显示原图，加 `?download=true` 下载原图。
+
+任务状态值为 `pending`、`capturing`、`uploading`、`completed`、`failed`。正在执行时不接受第二项任务；重复或迟到上传返回 `409`，不会生成第二张照片。连接正常断开时，未完成任务记录为失败。照片已保存但 HTTP 回应丢失时，服务器完成状态不会因相机后续失败回报而被覆盖。
+
+本项尚无任务超时和启动恢复，因此设备保持连接但不回报时需要等待后续开发项处理。暂无自动清理期限。
+
+### 验证
+
+```powershell
+python server/tests/test_camera_capture.py
+python server/tests/test_api_smoke.py
+python server/tests/test_websocket_control.py
+```
+
+模拟器使用方法见 `../camera/README.md`。本地手动运行服务器时，将 `INCUBATOR_DB`、`INCUBATOR_DEVICES` 指向测试文件，先用 Python 的 `sqlite3.Connection.executescript` 应用 `schema.sql`，再在 `server/` 目录运行 `python -m uvicorn app:app --host 127.0.0.1 --port 8000`。

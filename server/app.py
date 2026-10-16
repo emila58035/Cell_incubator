@@ -42,6 +42,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from camera_api import CameraAPI
+
 API_VERSION = "1.2.0"
 APP_DIR = Path(__file__).resolve().parent
 
@@ -835,6 +837,15 @@ def healthz() -> dict[str, Any]:
     else:
         info["status"] = "degraded"
     return info
+
+
+camera_api = CameraAPI(
+    database=db,
+    authenticate=authenticate,
+    websocket_authenticate=_token_from_websocket,
+    photos_dir=Path(os.environ.get("INCUBATOR_CAMERA_PHOTOS") or (DB_PATH.parent / "photos")),
+)
+app.include_router(camera_api.router)
 
 
 # Mounted last so that every /api/v1 route above wins the match.
