@@ -33,6 +33,7 @@ import os
 import sqlite3
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -346,6 +347,15 @@ def _store_telemetry(payload: TelemetryIn, authed_device: str) -> None:
 # --------------------------------------------------------------------------
 # Application
 # --------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await camera_api.start()
+    try:
+        yield
+    finally:
+        await camera_api.stop()
+
+
 # Docs endpoints are disabled: the service is reachable from the public
 # internet on a bare IP with no domain to hide behind (REMOTE_MONITORING 7).
 app = FastAPI(
@@ -354,6 +364,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    lifespan=lifespan,
 )
 
 

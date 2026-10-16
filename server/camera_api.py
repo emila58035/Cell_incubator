@@ -1,13 +1,14 @@
-"""Single-camera manual capture API. Scheduling and the gallery are separate steps."""
+"""Single-camera capture, interval scheduling and image upload API."""
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Callable, Iterator, Literal
 
@@ -23,6 +24,11 @@ class CaptureUpdate(BaseModel):
     reason: str | None = Field(default=None, max_length=512)
 
 
+class ScheduleUpdate(BaseModel):
+    enabled: bool = Field(strict=True)
+    interval_s: int = Field(default=600, ge=1, strict=True)
+
+
 class CameraAPI:
     def __init__(
         self,
@@ -30,23 +36,35 @@ class CameraAPI:
         authenticate: Callable[..., str],
         websocket_authenticate: Callable[[WebSocket], str | None],
         photos_dir: Path,
+        wall_clock: Callable[[], float] = time.time,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.database = database
+        self.wall_clock = wall_clock
+        self.monotonic = monotonic
         self.device_id = os.environ.get("INCUBATOR_CAMERA_ID", "camera-001")
         self.photos_dir = photos_dir
         # Development defaults; tune these with the eventual camera hardware.
         self.heartbeat_timeout_s = int(os.environ.get("INCUBATOR_CAMERA_OFFLINE_S", "45"))
         self.max_upload_bytes = int(os.environ.get("INCUBATOR_CAMERA_MAX_BYTES", str(16 * 1024 * 1024)))
+        self.task_timeout_s = float(os.environ.get("INCUBATOR_CAMERA_TASK_TIMEOUT_S", "120"))
         self.socket: WebSocket | None = None
         self.last_seen = 0.0
         self.ready = False
         self.device_busy = False
         self.active_task_id: str | None = None
+        self.active_deadline: float | None = None
         self.upload_task_id: str | None = None
+        self.schedule_enabled = False
+        self.interval_s = 600
+        self.next_due: float | None = None
+        self.worker: asyncio.Task | None = None
 
         self.router = APIRouter()
         self.router.add_api_websocket_route("/api/v1/camera-stream", self.stream)
         self.router.add_api_route("/api/v1/camera/status", self.status, methods=["GET"])
+        self.router.add_api_route("/api/v1/camera/schedule", self.schedule, methods=["GET"])
+        self.router.add_api_route("/api/v1/camera/schedule", self.update_schedule, methods=["PUT"])
         self.router.add_api_route(
             "/api/v1/camera/captures", self.capture, methods=["POST"], status_code=201,
         )
@@ -80,7 +98,85 @@ class CameraAPI:
             conn.close()
 
     def online(self) -> bool:
-        return self.socket is not None and time.monotonic() - self.last_seen <= self.heartbeat_timeout_s
+        return self.socket is not None and self.monotonic() - self.last_seen <= self.heartbeat_timeout_s
+
+    async def start(self) -> None:
+        with self.connection() as conn, conn:
+            conn.execute(
+                "UPDATE camera_captures SET status = 'failed', finished_at = ?, reason = 'server_restarted' "
+                "WHERE status IN ('pending', 'capturing', 'uploading')",
+                (self.wall_clock(),),
+            )
+            row = conn.execute("SELECT enabled, interval_s FROM camera_schedule WHERE id = 1").fetchone()
+        self.schedule_enabled = bool(row["enabled"])
+        self.interval_s = row["interval_s"]
+        if self.photos_dir.is_dir():
+            for partial in self.photos_dir.glob("*.part"):
+                partial.unlink()
+        # Restored schedules try once at startup, even if the camera is not connected yet.
+        if self.schedule_enabled:
+            self.next_due = self.monotonic()
+            await self.tick()
+        self.worker = asyncio.create_task(self.run(), name="camera-scheduler")
+
+    async def stop(self) -> None:
+        if self.worker is not None:
+            self.worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await self.worker
+            self.worker = None
+
+    async def run(self) -> None:
+        while True:
+            await asyncio.sleep(0.25)
+            await self.tick()
+
+    async def tick(self) -> None:
+        now = self.monotonic()
+        if self.active_task_id is not None and self.active_deadline is not None and now >= self.active_deadline:
+            self.fail(self.active_task_id, "capture_timeout")
+        if self.socket is not None and not self.online():
+            if self.active_task_id is not None:
+                self.fail(self.active_task_id, "camera_offline")
+            socket = self.socket
+            self.socket = None
+            self.ready = False
+            self.device_busy = False
+            await socket.close(code=1000, reason="camera heartbeat timeout")
+        if self.schedule_enabled and self.next_due is not None and now >= self.next_due:
+            # Keep the original phase, but collapse missed intervals to one attempt.
+            intervals = int((now - self.next_due) // self.interval_s) + 1
+            self.next_due += intervals * self.interval_s
+            await self.create_capture("scheduled")
+
+    async def schedule(self) -> dict[str, Any]:
+        return {
+            "enabled": self.schedule_enabled,
+            "interval_s": self.interval_s,
+            "next_capture_at": (
+                self.wall_clock() + max(0, self.next_due - self.monotonic())
+                if self.next_due is not None else None
+            ),
+        }
+
+    async def update_schedule(self, payload: ScheduleUpdate) -> dict[str, Any]:
+        was_enabled = self.schedule_enabled
+        changed_interval = payload.interval_s != self.interval_s
+        with self.connection() as conn, conn:
+            conn.execute(
+                "UPDATE camera_schedule SET enabled = ?, interval_s = ? WHERE id = 1",
+                (int(payload.enabled), payload.interval_s),
+            )
+        self.schedule_enabled = payload.enabled
+        self.interval_s = payload.interval_s
+        if not payload.enabled:
+            self.next_due = None
+        elif not was_enabled:
+            self.next_due = self.monotonic() + self.interval_s
+            await self.create_capture("scheduled")
+        elif changed_interval:
+            self.next_due = self.monotonic() + self.interval_s
+        return await self.schedule()
 
     async def status(self) -> dict[str, Any]:
         return {
@@ -89,6 +185,7 @@ class CameraAPI:
             "ready": self.online() and self.ready,
             "busy": self.device_busy or self.active_task_id is not None,
             "current_task_id": self.active_task_id,
+            "schedule": await self.schedule(),
         }
 
     async def task(self, task_id: str) -> dict[str, Any]:
@@ -103,12 +200,16 @@ class CameraAPI:
             conn.execute(
                 "UPDATE camera_captures SET status = 'failed', finished_at = ?, reason = ? "
                 "WHERE task_id = ? AND status IN ('pending', 'capturing', 'uploading')",
-                (time.time(), reason, task_id),
+                (self.wall_clock(), reason, task_id),
             )
         if self.active_task_id == task_id:
             self.active_task_id = None
+            self.active_deadline = None
 
     async def capture(self) -> dict[str, Any]:
+        return await self.create_capture("manual")
+
+    async def create_capture(self, source: Literal["manual", "scheduled"]) -> dict[str, Any]:
         task_id = str(uuid.uuid4())
         reason = None
         code = 409
@@ -122,15 +223,19 @@ class CameraAPI:
             conn.execute(
                 "INSERT INTO camera_captures "
                 "(task_id, device_id, source, status, created_at, finished_at, reason) "
-                "VALUES (?, ?, 'manual', ?, ?, ?, ?)",
-                (task_id, self.device_id, "failed" if reason else "pending", time.time(),
-                 time.time() if reason else None, reason),
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, self.device_id, source,
+                 ("skipped" if source == "scheduled" else "failed") if reason else "pending",
+                 self.wall_clock(), self.wall_clock() if reason else None, reason),
             )
         if reason:
+            if source == "scheduled":
+                return await self.task(task_id)
             raise HTTPException(code, {"task_id": task_id, "reason": reason})
 
         # Reserve before sending (the first await) so concurrent requests cannot queue.
         self.active_task_id = task_id
+        self.active_deadline = self.monotonic() + self.task_timeout_s
         self.device_busy = True
         socket = self.socket
         try:
@@ -140,7 +245,8 @@ class CameraAPI:
             if self.socket is socket:
                 self.socket = None
                 self.ready = False
-            raise HTTPException(503, {"task_id": task_id, "reason": "camera_disconnected"})
+            if source == "manual":
+                raise HTTPException(503, {"task_id": task_id, "reason": "camera_disconnected"})
         return await self.task(task_id)
 
     async def stream(self, websocket: WebSocket) -> None:
@@ -157,7 +263,7 @@ class CameraAPI:
         self.socket = websocket
         self.ready = False
         self.device_busy = False
-        self.last_seen = time.monotonic()
+        self.last_seen = self.monotonic()
         await websocket.accept()
         if old is not None:
             await old.close(code=1000, reason="stale camera connection")
@@ -173,7 +279,7 @@ class CameraAPI:
                     continue
                 if self.socket is not websocket:
                     break
-                self.last_seen = time.monotonic()
+                self.last_seen = self.monotonic()
                 kind = message.get("type")
                 if kind in {"hello", "heartbeat"}:
                     if not isinstance(message.get("busy"), bool):
@@ -181,7 +287,7 @@ class CameraAPI:
                         continue
                     self.ready = True
                     self.device_busy = message["busy"]
-                    await websocket.send_json({"type": f"{kind}_ack", "server_ts": time.time()})
+                    await websocket.send_json({"type": f"{kind}_ack", "server_ts": self.wall_clock()})
                 elif kind == "capture_status":
                     try:
                         update = CaptureUpdate.model_validate(message)
@@ -249,13 +355,8 @@ class CameraAPI:
         saved = False
         try:
             self.photos_dir.mkdir(parents=True, exist_ok=True)
-            size = 0
-            with partial.open("wb") as target:
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > self.max_upload_bytes:
-                        raise HTTPException(413, "image exceeds configured upload limit")
-                    target.write(chunk)
+            remaining = max(0, self.active_deadline - self.monotonic())
+            await asyncio.wait_for(self.write_image(request, partial), timeout=remaining)
             with partial.open("rb") as image:
                 if image.read(len(signature)) != signature:
                     raise HTTPException(400, "image header does not match content type")
@@ -271,11 +372,15 @@ class CameraAPI:
                 )
                 conn.execute(
                     "UPDATE camera_captures SET status = 'completed', finished_at = ? WHERE task_id = ?",
-                    (time.time(), task_id),
+                    (self.wall_clock(), task_id),
                 )
             saved = True
             self.active_task_id = None
+            self.active_deadline = None
             return await self.photo(photo_id)
+        except asyncio.TimeoutError:
+            self.fail(task_id, "capture_timeout")
+            raise HTTPException(408, "capture timeout")
         except HTTPException as exc:
             self.fail(task_id, str(exc.detail))
             raise
@@ -290,6 +395,15 @@ class CameraAPI:
             partial.unlink(missing_ok=True)
             if not saved:
                 destination.unlink(missing_ok=True)
+
+    async def write_image(self, request: Request, partial: Path) -> None:
+        size = 0
+        with partial.open("wb") as target:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > self.max_upload_bytes:
+                    raise HTTPException(413, "image exceeds configured upload limit")
+                target.write(chunk)
 
     async def photo(self, photo_id: str) -> dict[str, Any]:
         with self.connection() as conn:

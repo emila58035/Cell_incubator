@@ -99,3 +99,11 @@ CREATE TABLE IF NOT EXISTS camera_photos (
 
 CREATE INDEX IF NOT EXISTS idx_camera_photos_captured
   ON camera_photos(captured_at DESC, photo_id DESC);
+
+CREATE TABLE IF NOT EXISTS camera_schedule (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled    INTEGER NOT NULL DEFAULT 0,
+  interval_s INTEGER NOT NULL DEFAULT 600 CHECK (interval_s >= 1)
+);
+
+INSERT OR IGNORE INTO camera_schedule (id, enabled, interval_s) VALUES (1, 0, 600);
