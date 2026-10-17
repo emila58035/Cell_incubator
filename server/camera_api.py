@@ -29,6 +29,10 @@ class ScheduleUpdate(BaseModel):
     interval_s: int = Field(default=600, ge=1, strict=True)
 
 
+class PhotoDelete(BaseModel):
+    photo_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class CameraAPI:
     def __init__(
         self,
@@ -70,6 +74,15 @@ class CameraAPI:
         )
         self.router.add_api_route(
             "/api/v1/camera/captures/{task_id}", self.task, methods=["GET"],
+        )
+        self.router.add_api_route(
+            "/api/v1/camera/photos", self.photos, methods=["GET"],
+        )
+        self.router.add_api_route(
+            "/api/v1/camera/photos/latest", self.latest_photo, methods=["GET"],
+        )
+        self.router.add_api_route(
+            "/api/v1/camera/photos/delete", self.delete_photos, methods=["POST"],
         )
         self.router.add_api_route(
             "/api/v1/camera/photos/{photo_id}", self.photo, methods=["GET"],
@@ -179,6 +192,10 @@ class CameraAPI:
         return await self.schedule()
 
     async def status(self) -> dict[str, Any]:
+        with self.connection() as conn:
+            latest = conn.execute(
+                "SELECT * FROM camera_captures ORDER BY created_at DESC, task_id DESC LIMIT 1"
+            ).fetchone()
         return {
             "device_id": self.device_id,
             "online": self.online(),
@@ -186,6 +203,7 @@ class CameraAPI:
             "busy": self.device_busy or self.active_task_id is not None,
             "current_task_id": self.active_task_id,
             "schedule": await self.schedule(),
+            "latest_task": dict(latest) if latest else None,
         }
 
     async def task(self, task_id: str) -> dict[str, Any]:
@@ -405,12 +423,67 @@ class CameraAPI:
                     raise HTTPException(413, "image exceeds configured upload limit")
                 target.write(chunk)
 
+    @staticmethod
+    def photo_info(row: sqlite3.Row) -> dict[str, Any]:
+        return {**dict(row), "file_url": f"/api/v1/camera/photos/{row['photo_id']}/file"}
+
+    async def photos(
+        self, page: int = Query(default=1, ge=1), page_size: int = Query(default=12, ge=1, le=100),
+    ) -> dict[str, Any]:
+        with self.connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM camera_photos").fetchone()[0]
+            rows = conn.execute(
+                "SELECT * FROM camera_photos ORDER BY captured_at DESC, photo_id DESC LIMIT ? OFFSET ?",
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+        return {"items": [self.photo_info(row) for row in rows], "total": total,
+                "page": page, "page_size": page_size}
+
+    async def latest_photo(self) -> dict[str, Any] | None:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM camera_photos ORDER BY captured_at DESC, photo_id DESC LIMIT 1"
+            ).fetchone()
+        return self.photo_info(row) if row else None
+
+    async def delete_photos(self, payload: PhotoDelete) -> dict[str, Any]:
+        deleted, failed = [], []
+        for photo_id in dict.fromkeys(payload.photo_ids):
+            with self.connection() as conn:
+                row = conn.execute("SELECT * FROM camera_photos WHERE photo_id = ?", (photo_id,)).fetchone()
+                if row is None:
+                    failed.append({"photo_id": photo_id, "reason": "photo_not_found"})
+                    continue
+                try:
+                    (self.photos_dir / row["filename"]).unlink(missing_ok=True)
+                    with conn:
+                        conn.execute("DELETE FROM camera_photos WHERE photo_id = ?", (photo_id,))
+                        conn.execute("DELETE FROM camera_captures WHERE task_id = ?", (row["task_id"],))
+                except (OSError, sqlite3.Error):
+                    failed.append({"photo_id": photo_id, "reason": "photo_delete_failed"})
+                    continue
+                deleted.append(photo_id)
+        return {"deleted": deleted, "failed": failed}
+
     async def photo(self, photo_id: str) -> dict[str, Any]:
         with self.connection() as conn:
             row = conn.execute("SELECT * FROM camera_photos WHERE photo_id = ?", (photo_id,)).fetchone()
-        if row is None:
-            raise HTTPException(404, "photo not found")
-        return {**dict(row), "file_url": f"/api/v1/camera/photos/{photo_id}/file"}
+            if row is None:
+                raise HTTPException(404, "photo not found")
+            # One incubator: use the dashboard's first device, excluding the independent camera.
+            device = conn.execute(
+                "SELECT device_id FROM devices WHERE device_id != ? ORDER BY device_id LIMIT 1",
+                (self.device_id,),
+            ).fetchone()
+            environment = None
+            if device:
+                environment = conn.execute(
+                    "SELECT recv_ts, temperature, temperature_ok, humidity, humidity_ok, "
+                    "co2, co2_ok, co2_available FROM telemetry WHERE device_id = ? "
+                    "AND recv_ts BETWEEN ? AND ? ORDER BY ABS(recv_ts - ?), recv_ts, id DESC LIMIT 1",
+                    (device["device_id"], row["captured_at"] - 30, row["captured_at"] + 30, row["captured_at"]),
+                ).fetchone()
+        return {**self.photo_info(row), "environment": dict(environment) if environment else None}
 
     async def photo_file(self, photo_id: str, download: bool = False) -> FileResponse:
         photo = await self.photo(photo_id)

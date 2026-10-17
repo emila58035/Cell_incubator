@@ -67,6 +67,7 @@ install -o incubator -g incubator -m 0644 "$SRC/schema.sql"  "$APP_DIR/schema.sq
 rm -rf "$APP_DIR/static" "$APP_DIR/tests"
 install -d -o incubator -g incubator -m 0755 "$APP_DIR/static"
 install -o incubator -g incubator -m 0644 "$SRC/static/index.html" "$APP_DIR/static/index.html"
+install -o incubator -g incubator -m 0644 "$SRC/static/camera.html" "$APP_DIR/static/camera.html"
 install -d -o incubator -g incubator -m 0755 "$APP_DIR/tests"
 install -o incubator -g incubator -m 0644 "$SRC/tests/test_api_smoke.py" "$APP_DIR/tests/test_api_smoke.py"
 install -o incubator -g incubator -m 0644 "$SRC/tests/test_websocket_control.py" "$APP_DIR/tests/test_websocket_control.py"

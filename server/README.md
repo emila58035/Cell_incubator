@@ -251,9 +251,9 @@ Serial.printf("[CO2] Reading OK: %lu ppm ...", scaledPpm);   // 打印成 ppm，
 | 4 | WebSocket 远控实机联调（需上传本目录并烧录对应固件） | 固件/服务器 |
 | 5 | ICP 备案后可切域名 + LE 证书（**可选**，只为消除浏览器证书警告） | 可选 |
 
-## 10. 相机拍照与定时任务（前两项已完成本地模拟验证）
+## 10. 相机拍照与图库（前三项已完成本地模拟验证）
 
-已实现相机独立 WebSocket、手动拍照任务、HTTP 单次图片上传、任务状态查询、原图读取下载、单定时任务、任务超时和服务器重启恢复。图库页面、环境数据关联和批量删除尚未实现；完整目标见 `../docs/CAMERA_CAPTURE_PLAN.md`。尚未进行真实摄像头与公网 Nginx 联调。
+已实现相机独立 WebSocket、手动拍照任务、HTTP 单次图片上传、任务状态查询、原图读取下载、单定时任务、任务超时、服务器重启恢复、图库页面、环境数据关联和批量删除。完整目标见 `../docs/CAMERA_CAPTURE_PLAN.md`。尚未进行真实摄像头与公网 Nginx 联调；现有 Nginx 配置的相机专属通道留待部署项补齐。
 
 新增文件：`camera_api.py`、`tests/test_camera_schedule.py`；数据库新增 `camera_captures`、`camera_photos` 和 `camera_schedule`。更新时需重复应用 `schema.sql`，部署脚本会安装新模块。相机测试依赖仓库中的开发模拟器，从完整仓库运行，不改变仅打包 `server/` 的部署方式。
 
@@ -282,6 +282,16 @@ Serial.printf("[CO2] Reading OK: %lu ppm ...", scaledPpm);   // 打印成 ppm，
 - `GET /api/v1/camera/status` 返回在线、就绪、忙状态与当前任务编号；`GET /api/v1/camera/captures/{task_id}` 返回任务状态。
 - `GET /api/v1/camera/schedule` 返回定时开关、间隔和下次触发时间；`PUT` 接收 `{"enabled":true,"interval_s":600}`，启用时立即尝试一次，忙或离线记为 `skipped`。
 - `GET /api/v1/camera/photos/{photo_id}` 获取照片信息；`GET /api/v1/camera/photos/{photo_id}/file` 显示原图，加 `?download=true` 下载原图。
+- `GET /api/v1/camera/photos?page=1&page_size=12` 按拍摄时间、照片编号倒序分页，返回 `items/total/page/page_size`，每页最多 100 张；`GET /api/v1/camera/photos/latest` 返回最新照片信息，无照片返回 JSON `null`。
+- 照片详情中的 `environment` 返回单培养箱拍摄前后 30 秒内最近一条遥测（等距取较早记录），包含实际采样时间、温湿度和 CO₂ 及其有效状态；没有匹配时为 `null`。沿用首页设备顺序，排除独立相机设备，不保存环境数据副本。
+- `POST /api/v1/camera/photos/delete` 接收 `{"photo_ids":["..."]}`（1–100 项），去重后逐项删除文件、照片和对应任务，返回 `deleted` 编号列表及 `failed` 中的编号和原因；原始遥测不删除。
+- 相机状态新增 `latest_task`，用于显示最近任务的完成、失败或跳过原因；当前任务仍可按编号查询。
+
+### 网页使用
+
+首页底部显示最新照片和相机入口。`/camera.html` 支持手动拍照、定时开关与秒数间隔、最新照片、每页 12 张图库、照片详情、附近环境数据和下载原图。勾选照片或全选当前页后，确认一次批量删除；下载不会删除照片。
+
+详情可放大、旋转 90°、水平翻转、按左右或上下两侧对称裁剪。调整仅在浏览器查看中生效，关闭后不保存，下载始终为原文件。图库直接使用原图缩小显示，不生成独立缩略图。页面支持浅色和深色主题，以及手机布局。
 
 任务状态值为 `pending`、`capturing`、`uploading`、`completed`、`failed`、`skipped`。正在执行时不接受第二项任务；重复或迟到上传返回 `409`，不会生成第二张照片。连接正常断开时，未完成任务记录为失败。任务超过 `INCUBATOR_CAMERA_TASK_TIMEOUT_S` 后记录 `capture_timeout`。服务器重启时未完成任务记录为 `server_restarted`，已启用的定时配置恢复并立即尝试一次。照片已保存但 HTTP 回应丢失时，服务器完成状态不会因相机后续失败回报而被覆盖。
 
@@ -294,6 +304,9 @@ python server/tests/test_camera_capture.py
 python server/tests/test_camera_schedule.py
 python server/tests/test_api_smoke.py
 python server/tests/test_websocket_control.py
+python server/tests/test_camera_gallery.py
 ```
+
+图库浏览器测试需要已有 Playwright 和 Chromium；也可指定本机浏览器，例如 `python server/tests/test_camera_gallery.py --browser-executable 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'`。测试使用临时数据库和模拟相机，不操作真实设备。
 
 模拟器使用方法见 `../camera/README.md`。本地手动运行服务器时，将 `INCUBATOR_DB`、`INCUBATOR_DEVICES` 指向测试文件，先用 Python 的 `sqlite3.Connection.executescript` 应用 `schema.sql`，再在 `server/` 目录运行 `python -m uvicorn app:app --host 127.0.0.1 --port 8000`。

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>培养箱相机</title>
+<style>
+:root { color-scheme:light; --bg:#f3f5f8; --panel:#fff; --fg:#202b3c; --muted:#66748a; --line:#e0e6ef; --soft:#f7f9fc; --accent:#2865df; --bad:#c23e43; --good:#167b59; }
+[data-theme="dark"] { color-scheme:dark; --bg:#111721; --panel:#1a2330; --fg:#edf1f8; --muted:#a0adc0; --line:#303d50; --soft:#202c3b; --accent:#75a6ff; --bad:#ff8388; --good:#62d6a6; }
+* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+main { max-width:1200px; margin:auto; padding:28px; } h1,h2,p { margin:0; } h1 { font-size:24px; } h2 { font-size:17px; } a { color:var(--accent); } .muted { color:var(--muted); } .bad { color:var(--bad); } .good { color:var(--good); }
+header,.row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; } header { margin-bottom:24px; } section { background:var(--panel); border:1px solid var(--line); border-radius:15px; padding:22px; margin-bottom:18px; } .controls { display:grid; grid-template-columns:1fr 1.3fr; gap:24px; } .stack { display:grid; gap:12px; align-content:start; } .tools { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+button,input { font:inherit; } button,.button { min-height:44px; padding:10px 15px; border:1px solid var(--line); border-radius:9px; background:var(--panel); color:var(--fg); cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+button:hover:enabled,.button:hover { border-color:var(--accent); } button:disabled { opacity:.45; cursor:not-allowed; } .primary { background:var(--accent); color:var(--bg); font-weight:600; } input[type="number"] { width:110px; min-height:44px; padding:8px; background:var(--soft); color:var(--fg); border:1px solid var(--line); border-radius:8px; } input[type="checkbox"] { width:18px; height:18px; accent-color:var(--accent); vertical-align:middle; } button:focus-visible,a:focus-visible,input:focus-visible { outline:3px solid var(--accent); outline-offset:3px; } [hidden] { display:none!important; }
+#latestButton { width:100%; padding:0; border:0; margin-top:16px; overflow:hidden; background:var(--soft); } #latestImage { display:block; width:100%; max-height:400px; object-fit:contain; } .empty { padding:40px 12px; text-align:center; color:var(--muted); } #message { min-height:24px; margin:0 0 12px; overflow-wrap:anywhere; }
+.gallery { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:18px 0; } .photo { min-width:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; } .photo .open { display:block; padding:0; width:100%; border:0; border-radius:0; background:var(--soft); } .photo img { display:block; width:100%; height:170px; object-fit:contain; } .photo label { display:flex; align-items:center; gap:8px; padding:12px; font-size:12px; } .pager { justify-content:center; }
+dialog { width:min(1000px,96vw); max-height:94vh; border:1px solid var(--line); border-radius:15px; padding:22px; color:var(--fg); background:var(--panel); } dialog::backdrop { background:#0009; } .viewer { height:420px; max-height:50vh; overflow:auto; background:var(--soft); margin:16px 0; display:grid; place-items:center; } #photoCanvas { display:block; max-width:100%; max-height:100%; } .view-settings { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; } .view-settings label { display:grid; gap:4px; } .view-settings input { width:150px; accent-color:var(--accent); } #environment { padding:14px 0; } footer { font-size:12px; color:var(--muted); }
+@media(max-width:680px) { main { padding:18px 12px; } .controls { grid-template-columns:1fr; } section { padding:16px; } .gallery { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; } .photo img { height:130px; } .photo label { padding:8px; } dialog { padding:14px; } }
+</style>
+</head>
+<body>
+<main>
+<header><div><p class="muted">INCUBATOR · CAMERA</p><h1>培养箱相机</h1></div><div class="tools"><a href="/">返回培养箱监测</a><button id="themeToggle" type="button">深色模式</button></div></header>
+<p id="message" role="status"></p>
+<section class="controls" aria-label="拍照控制">
+<div class="stack"><div class="row"><h2>手动拍照</h2><span id="online" class="muted">连接中</span></div><p id="taskStatus" role="status">等待设备状态</p><button id="capture" class="primary" type="button" disabled>拍摄一张</button></div>
+<form id="scheduleForm" class="stack"><h2>定时拍照</h2><div class="tools"><label><input id="enabled" type="checkbox"> 启用定时拍照</label><label>间隔 <input id="interval" type="number" min="1" step="1" value="600" required> 秒</label><button id="saveSchedule" type="submit">保存</button></div><p id="nextCapture" class="muted">尚未启用</p><p class="muted">启用时立即尝试一次；忙或离线时跳过，不补拍。</p></form>
+</section>
+<section aria-label="最新照片"><div class="row"><h2>最新照片</h2><time id="latestTime" class="muted"></time></div><p id="latestEmpty" class="empty">暂无照片</p><button id="latestButton" type="button" aria-label="查看最新照片" hidden><img id="latestImage" alt="培养箱最新照片"></button></section>
+<section aria-label="历史照片"><div class="row"><h2>历史照片</h2><div class="tools"><label><input id="selectPage" type="checkbox"> 全选当前页</label><button id="delete" type="button" disabled>删除所选</button></div></div><div id="gallery" class="gallery"></div><p id="galleryEmpty" class="empty">暂无照片</p><div class="tools pager"><button id="prev" type="button" disabled>上一页</button><span id="pageInfo" class="muted">第 1 页</span><button id="next" type="button" disabled>下一页</button></div></section>
+<footer>照片按拍摄时间倒序显示；环境数据匹配拍摄前后 30 秒内最近的采样。查看调整不修改原图。</footer>
+</main>
+<dialog id="detail" aria-labelledby="detailTitle"><div class="row"><h2 id="detailTitle">照片详情</h2><button id="closeDetail" type="button">关闭</button></div><p id="detailTime" class="muted"></p><p id="detailError" class="bad" role="status"></p><div class="viewer"><canvas id="photoCanvas" aria-label="照片查看区域"></canvas></div><div class="tools"><button id="rotate" type="button">旋转 90°</button><button id="flip" type="button" aria-pressed="false">水平翻转</button><button id="resetView" type="button">重置查看</button><a id="download" class="button" download>下载原图</a></div><div class="view-settings"><label>放大 <input id="zoom" type="range" min="100" max="300" value="100" step="10"></label><label>裁剪左右（各侧）<input id="cropX" type="range" min="0" max="45" value="0"></label><label>裁剪上下（各侧）<input id="cropY" type="range" min="0" max="45" value="0"></label></div><p id="environment"></p></dialog>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const dateText = ts => new Date(ts * 1000).toLocaleString("zh-CN", {hour12:false});
+const states = {pending:"等待执行",capturing:"拍摄中",uploading:"上传中",completed:"完成",failed:"失败",skipped:"已跳过"};
+const reasons = {camera_offline:"相机离线",camera_busy:"设备忙",camera_not_ready:"相机未就绪",capture_timeout:"任务超时",camera_disconnected:"相机断开连接",server_restarted:"服务器已重启",photo_not_found:"照片不存在",photo_delete_failed:"删除失败"};
+const state = {page:1,items:[],selected:new Set(),latest:null,refreshing:false,scheduleDirty:false,scheduleLoaded:false,taskId:null,rotation:0,flipped:false,image:null};
+function message(text, error=false) { $("message").textContent=text; $("message").className=error ? "bad" : "good"; }
+async function api(path, options={}) {
+  const response = await fetch("/api/v1/camera" + path, {cache:"no-store",...options});
+  const result = await response.json();
+  if (!response.ok) { const detail=result.detail; const error=new Error(typeof detail === "object" && !Array.isArray(detail) ? (reasons[detail.reason] || detail.reason) : typeof detail === "string" ? detail : `请求失败（${response.status}）`); error.taskId=detail?.task_id; throw error; }
+  return result;
+}
+function jsonOptions(method, body) { return {method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}; }
+let savedTheme; try { savedTheme=localStorage.getItem("incubator-theme"); } catch (_) {}
+function theme(value) { document.documentElement.dataset.theme=value; $("themeToggle").textContent=value === "dark" ? "浅色模式" : "深色模式"; }
+theme(savedTheme === "dark" || (!savedTheme && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light");
+$("themeToggle").onclick=() => { const value=document.documentElement.dataset.theme === "dark" ? "light" : "dark"; theme(value); try { localStorage.setItem("incubator-theme",value); } catch (_) {} };
+function selection() {
+  $("delete").disabled=!state.selected.size;
+  $("selectPage").checked=state.items.length > 0 && state.selected.size === state.items.length;
+  $("selectPage").indeterminate=state.selected.size > 0 && state.selected.size < state.items.length;
+  $("selectPage").disabled=!state.items.length;
+}
+async function loadGallery() {
+  let result=await api(`/photos?page=${state.page}`);
+  if (state.page > 1 && !result.items.length) { state.page=Math.max(1,Math.ceil(result.total/result.page_size)); result=await api(`/photos?page=${state.page}`); }
+  state.items=result.items; state.selected.clear(); $("gallery").replaceChildren();
+  for (const photo of state.items) {
+    const card=document.createElement("article"); card.className="photo";
+    const open=document.createElement("button"); open.type="button"; open.className="open"; open.setAttribute("aria-label","查看照片 " + dateText(photo.captured_at)); open.onclick=() => showPhoto(photo.photo_id);
+    const image=document.createElement("img"); image.src=photo.file_url; image.alt="培养箱照片"; image.loading="lazy"; open.append(image);
+    const label=document.createElement("label"), box=document.createElement("input"); box.type="checkbox"; box.dataset.photoId=photo.photo_id;
+    box.onchange=() => { if (box.checked) state.selected.add(photo.photo_id); else state.selected.delete(photo.photo_id); selection(); };
+    label.append(box,document.createTextNode(dateText(photo.captured_at))); card.append(open,label); $("gallery").append(card);
+  }
+  $("galleryEmpty").hidden=result.total > 0; $("prev").disabled=state.page === 1; $("next").disabled=state.page * result.page_size >= result.total;
+  $("pageInfo").textContent=`第 ${state.page} / ${Math.max(1,Math.ceil(result.total/result.page_size))} 页 · 共 ${result.total} 张`; selection();
+}
+async function loadLatest(force=false) {
+  const photo=await api("/photos/latest"), changed=photo?.photo_id !== state.latest?.photo_id;
+  state.latest=photo; $("latestEmpty").hidden=!!photo; $("latestButton").hidden=!photo;
+  $("latestTime").textContent=photo ? dateText(photo.captured_at) : "";
+  if (photo && (changed || force)) $("latestImage").src=photo.file_url;
+  if (changed || force) await loadGallery();
+}
+async function refresh() {
+  if (state.refreshing) return; state.refreshing=true;
+  try {
+    const status=await api("/status"); $("online").textContent=status.online ? "在线" : "离线"; $("online").className=status.online ? "good" : "bad";
+    $("capture").disabled=!status.ready || status.busy;
+    if (!state.scheduleLoaded || !state.scheduleDirty) { $("enabled").checked=status.schedule.enabled; $("interval").value=status.schedule.interval_s; state.scheduleLoaded=true; }
+    $("nextCapture").textContent=status.schedule.next_capture_at ? "下次尝试：" + dateText(status.schedule.next_capture_at) : "尚未启用";
+    if (status.current_task_id) state.taskId=status.current_task_id;
+    const task=state.taskId ? await api("/captures/" + encodeURIComponent(state.taskId)) : status.latest_task;
+    $("taskStatus").textContent=task ? (task.source === "scheduled" ? "定时拍照：" : "手动拍照：") + (states[task.status] || task.status) + (task.reason ? " · " + (reasons[task.reason] || task.reason) : "") : status.busy ? "设备忙" : status.ready ? "空闲，可拍照" : status.online ? "等待相机就绪" : "相机离线";
+    if (task && !["pending","capturing","uploading"].includes(task.status)) state.taskId=null;
+    await loadLatest(!state.initialized); state.initialized=true;
+  } catch (error) { $("online").textContent="连接失败"; $("online").className="bad"; $("capture").disabled=true; message(error.message,true); }
+  finally { state.refreshing=false; }
+}
+$("capture").onclick=async () => {
+  $("capture").disabled=true;
+  try { const task=await api("/captures",{method:"POST"}); state.taskId=task.task_id; message("拍照请求已发送"); }
+  catch (error) { if (error.taskId) state.taskId=error.taskId; message(error.message,true); }
+  await refresh();
+};
+$("scheduleForm").oninput=() => { state.scheduleDirty=true; };
+$("scheduleForm").onsubmit=async event => {
+  event.preventDefault(); $("saveSchedule").disabled=true;
+  try { await api("/schedule",jsonOptions("PUT",{enabled:$("enabled").checked,interval_s:Number($("interval").value)})); state.scheduleDirty=false; message("定时配置已保存"); await refresh(); }
+  catch (error) { message(error.message,true); } finally { $("saveSchedule").disabled=false; }
+};
+$("selectPage").onchange=() => { for (const box of $("gallery").querySelectorAll("input")) { box.checked=$("selectPage").checked; if (box.checked) state.selected.add(box.dataset.photoId); else state.selected.delete(box.dataset.photoId); } selection(); };
+$("delete").onclick=async () => {
+  if (!state.selected.size || !confirm(`删除所选 ${state.selected.size} 张照片及对应任务记录？`)) return;
+  $("delete").disabled=true;
+  try { const result=await api("/photos/delete",jsonOptions("POST",{photo_ids:[...state.selected]})); message(`已删除 ${result.deleted.length} 张` + (result.failed.length ? "；未删除：" + result.failed.map(item => item.photo_id + "（" + (reasons[item.reason] || item.reason) + "）").join("、") : ""), result.failed.length > 0); await loadLatest(true); }
+  catch (error) { message(error.message,true); } finally { selection(); }
+};
+for (const [id,step] of [["prev",-1],["next",1]]) $(id).onclick=async () => { $(id).disabled=true; state.page+=step; try { await loadGallery(); } catch (error) { state.page-=step; message(error.message,true); $(id).disabled=false; } };
+$("latestButton").onclick=() => { if (state.latest) showPhoto(state.latest.photo_id); };
+function resetView() { state.rotation=0; state.flipped=false; $("zoom").value=100; $("cropX").value=0; $("cropY").value=0; $("flip").setAttribute("aria-pressed","false"); drawPhoto(); }
+function drawPhoto() {
+  const image=state.image; if (!image) return;
+  const canvas=$("photoCanvas"), context=canvas.getContext("2d"), x=image.naturalWidth * Number($("cropX").value)/100, y=image.naturalHeight * Number($("cropY").value)/100;
+  const width=image.naturalWidth-2*x,height=image.naturalHeight-2*y, swapped=state.rotation % 180 !== 0;
+  canvas.width=Math.round(swapped ? height : width); canvas.height=Math.round(swapped ? width : height);
+  context.translate(canvas.width/2,canvas.height/2); context.rotate(state.rotation*Math.PI/180); context.scale(state.flipped ? -1 : 1,1); context.drawImage(image,x,y,width,height,-width/2,-height/2,width,height);
+  const zoom=Number($("zoom").value)/100; canvas.style.maxWidth=zoom*100 + "%"; canvas.style.maxHeight=zoom*100 + "%"; canvas.style.width=canvas.width*zoom + "px"; canvas.style.height="auto";
+}
+async function showPhoto(id) {
+  $("detailError").textContent=""; $("detailTime").textContent="加载中"; $("environment").textContent=""; $("download").removeAttribute("href"); state.image=null; $("photoCanvas").getContext("2d").clearRect(0,0,$("photoCanvas").width,$("photoCanvas").height);
+  $("detail").showModal();
+  try {
+    const photo=await api("/photos/" + encodeURIComponent(id)); $("detailTime").textContent="拍摄于 " + dateText(photo.captured_at); $("download").href=photo.file_url + "?download=true";
+    const env=photo.environment;
+    const value=(key,digits,unit) => env[key] == null || env[key+"_ok"] !== 1 || (key === "co2" && env.co2_available !== 1) ? "无有效数据" : Number(env[key]).toFixed(digits) + unit;
+    $("environment").textContent=env ? `采样时间：${dateText(env.recv_ts)} · 温度 ${value("temperature",2," ℃")} · 湿度 ${value("humidity",1," % RH")} · CO₂ ${value("co2",0," 设备单位")}` : "无对应环境数据";
+    const image=new Image(); image.onload=() => { state.image=image; resetView(); }; image.onerror=() => { $("detailError").textContent="照片加载失败"; }; image.src=photo.file_url;
+  } catch (error) { $("detailError").textContent=error.message; }
+}
+$("closeDetail").onclick=() => $("detail").close();
+$("rotate").onclick=() => { state.rotation=(state.rotation+90)%360; drawPhoto(); };
+$("flip").onclick=() => { state.flipped=!state.flipped; $("flip").setAttribute("aria-pressed",String(state.flipped)); drawPhoto(); };
+$("resetView").onclick=resetView;
+for (const id of ["zoom","cropX","cropY"]) $(id).oninput=drawPhoto;
+refresh(); setInterval(refresh,2000);
+</script>
+</body>
+</html>

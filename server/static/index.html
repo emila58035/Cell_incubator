@@ -32,6 +32,7 @@ input[type="number"] { width:106px; } input[type="range"] { padding:0; width:100
 .tooltip { display:none; position:absolute; pointer-events:none; border:1px solid var(--line); border-radius:8px; padding:8px 12px; color:var(--fg); background:var(--panel); font-size:12px; white-space:nowrap; box-shadow:0 3px 12px #0002; z-index:2; }
 .bottom { display:grid; grid-template-columns:1fr 1.6fr; gap:16px; margin-top:26px; } .detail-card { padding:20px; min-width:0; } .detail-card h2 { margin-bottom:14px; } dl { margin:0; } .detail-row { display:flex; justify-content:space-between; gap:14px; padding:7px 0; } dt { color:var(--muted); } dd { margin:0; text-align:right; overflow-wrap:anywhere; }
 .alert-list { max-height:280px; overflow:auto; } .alert { border-top:1px solid var(--line); padding:12px 0; } .alert:first-child { border-top:0; } .alert p { font-size:12px; color:var(--muted); margin-top:4px; } footer { margin-top:24px; color:var(--muted); font-size:12px; }
+.camera-preview { margin-top:26px; } .camera-preview a { color:var(--accent); } #cameraPhoto { display:block; max-width:100%; max-height:320px; margin:12px auto 0; border-radius:8px; } #cameraEmpty { padding:20px 0; }
 @media(max-width:680px) { .wrap { padding:18px 12px 28px; } .topbar { gap:14px; } h1 { font-size:21px; } .top-actions { width:100%; justify-content:space-between; } .metrics { gap:8px; } .metric { padding:14px 10px; } .metric-value { font-size:clamp(18px,6vw,26px); letter-spacing:-.05em; margin:10px 0; } .metric-value .unit { display:block; font-size:11px; margin:2px 0 0; } .metric-foot { font-size:11px; gap:3px; } .metric-name { font-size:12px; } .actuators,.bottom { grid-template-columns:1fr; gap:12px; } .actuator { padding:18px; } .chart-card { padding:14px 8px; } .chart-head { padding:0 6px; flex-wrap:wrap; } canvas { height:190px; } .custom-range label { flex:1; min-width:150px; } .custom-range input { width:100%; } .trend-meta { align-items:flex-start; } .brightness { grid-template-columns:1fr 75px auto; } .brightness button { padding:10px; } }
 </style>
 </head>
@@ -59,6 +60,7 @@ input[type="number"] { width:106px; } input[type="range"] { padding:0; width:100
 <p class="muted" style="font-size:12px">鼠标悬停或触摸查看采样值；电脑可拖动框选时间段，手机可使用放大按钮。CSV 下载当前查看范围内的原始采样。</p>
 </section>
 <section class="bottom" aria-label="连接详情与告警"><article class="detail-card"><h2>连接详情</h2><dl><div class="detail-row"><dt>设备</dt><dd id="deviceLabel">--</dd></div><div class="detail-row"><dt>远控连接</dt><dd id="wsState">--</dd></div><div class="detail-row"><dt>最近上报</dt><dd id="lastReceived">--</dd></div><div class="detail-row"><dt>数据年龄</dt><dd id="dataAge">--</dd></div><div class="detail-row"><dt>WiFi 信号</dt><dd id="rssi">--</dd></div><div class="detail-row"><dt>内部可用内存</dt><dd id="heap">--</dd></div><div class="detail-row"><dt>固件版本</dt><dd id="firmware">--</dd></div></dl></article><article class="detail-card"><div class="card-head"><h2>告警记录</h2><span class="muted">近 24 小时</span></div><div id="alerts" class="alert-list muted">加载中</div></article></section>
+<section class="detail-card camera-preview" aria-label="培养箱最新照片"><div class="card-head"><h2>最新照片</h2><a href="/camera.html">进入相机页面</a></div><p id="cameraTime" class="muted"></p><p id="cameraEmpty" class="muted">暂无照片</p><a href="/camera.html" aria-label="在相机页面查看照片"><img id="cameraPhoto" alt="培养箱最新照片" hidden></a></section>
 <footer>数值按设备上报显示；CO₂ 不作单位换算。实时状态每 10 秒刷新，远控通过长连接下发。</footer>
 </main>
 <script>
@@ -339,6 +341,15 @@ $("customForm").addEventListener("submit",event => {
 $("downloadCsv").addEventListener("click",() => { const range = currentWindow(); if (!range || !state.device) return; location.href = `/api/v1/devices/${encodeURIComponent(state.device)}/export.csv?` + new URLSearchParams({ from_ts:range[0],to_ts:range[1] }); });
 $("device").addEventListener("change",() => { invalidateHistory(); state.device = $("device").value; state.latest = null; state.dirty.clear(); state.submitted.clear(); state.ticks = 0; updateControls(); refresh(); loadHistory(); });
 let resizeFrame; window.addEventListener("resize",() => { cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(drawCharts); });
+async function refreshCameraPhoto() {
+  try {
+    const photo = await api("/api/v1/camera/photos/latest");
+    $("cameraPhoto").hidden = !photo; $("cameraEmpty").hidden = !!photo;
+    $("cameraTime").textContent = photo ? dateText(photo.captured_at) : "";
+    if (photo && $("cameraPhoto").getAttribute("src") !== photo.file_url) $("cameraPhoto").src = photo.file_url;
+  } catch (_) { $("cameraPhoto").hidden = true; $("cameraEmpty").hidden = false; $("cameraEmpty").textContent = "照片加载失败，下次刷新重试"; }
+}
+refreshCameraPhoto(); setInterval(refreshCameraPhoto,10000);
 refresh(); setInterval(refresh,10000);
 </script>
 </body>
