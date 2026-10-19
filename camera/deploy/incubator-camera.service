@@ -1,0 +1,24 @@
+[Unit]
+Description=Incubator USB camera client
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=video
+WorkingDirectory=/opt/incubator-camera
+EnvironmentFile=/etc/incubator-camera/camera.env
+ExecStart=/opt/incubator-camera/venv/bin/python -u /opt/incubator-camera/client.py
+Restart=on-failure
+RestartSec=5
+# Let the parent cancel capture / finish an already-issued upload first.
+# At the stop deadline, systemd kills all remaining processes in the group.
+KillMode=mixed
+TimeoutStopSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

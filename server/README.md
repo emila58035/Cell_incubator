@@ -28,20 +28,24 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 
 | 路径 | 说明 |
 |---|---|
-| `app.py` | 全部服务端逻辑（FastAPI 路由、校验、鉴权、告警、查询） |
+| `app.py` | 主服务、遥测、鉴权、告警、查询与远程控制 |
+| `camera_api.py` | 相机连接、拍照任务、间隔调度、照片与环境关联 |
 | `schema.sql` | 三张表 + 索引；每条语句幂等，可直接对已存在的库重复执行 |
 | `static/index.html` | 看板与远程控制。**零外部依赖**（不引 CDN、不引图表库），手写 canvas 画曲线 |
 | `tests/test_api_smoke.py` | HTTP 契约冒烟测试。只用标准库 + 真实 uvicorn 子进程 |
 | `tests/test_websocket_control.py` | WebSocket 连接、命令推送和 ACK 冒烟测试 |
+| `tests/test_dashboard_browser.py` | 电脑/手机网页、原始数据分页、缩放、CSV 与模拟设备远控验证；开发时使用 Playwright |
 | `deploy/setup.sh` | 幂等安装脚本（见 §4） |
 | `deploy/incubator-api.service` | systemd 单元，只绑 `127.0.0.1:8000` |
 | `deploy/incubator-https.conf` | Nginx 443 前端的**独立新文件**，不修改既有配置 |
+| `deploy/CAMERA_UPGRADE.md` | 现有服务器相机升级、备份、Nginx 校验与恢复、实机验收步骤 |
 
 服务器上的落点：
 
 ```
 /opt/incubator/app/            venv + app.py + schema.sql + static/ + tests/
 /var/lib/incubator/data.db     SQLite（WAL）
+/var/lib/incubator/photos/     相机原图（与数据库一并保留）
 /etc/incubator/devices.json    设备 Token（640 root:incubator）
 /etc/incubator/certs/          自签 CA 与 IP 叶子证书（*.key 600）
 /etc/nginx/incubator.htpasswd  看板 Basic Auth（640 root:<nginx user>）
@@ -59,14 +63,34 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 | WebSocket | `/api/v1/device-stream` | 设备 Bearer | 长连接遥测、心跳、命令下发与回执 |
 | GET | `/api/v1/devices` | Basic Auth | 设备列表 + 在线状态 + 样本数 |
 | GET | `/api/v1/devices/{id}/latest` | Basic Auth | 最新一条 + 派生字段 + 未恢复告警 |
-| GET | `/api/v1/devices/{id}/history?hours=&step=` | Basic Auth | 曲线数据。`hours>6` 自动按 60 s 分桶 |
+| GET | `/api/v1/devices/{id}/history?hours=&from_ts=&to_ts=&cursor=&snapshot_id=&limit=` | Basic Auth | 所有时间范围默认返回原始采样，按时间和采样 ID 升序分页；显式 `step` 参数可请求聚合 |
 | GET | `/api/v1/devices/{id}/alerts?hours=` | Basic Auth | 告警历史 |
 | POST | `/api/v1/devices/{id}/commands` | Basic Auth（由 Nginx 强制） | 创建远程控制命令 |
 | GET | `/api/v1/devices/{id}/commands/{command_id}` | Basic Auth（由 Nginx 强制） | 查询命令执行状态 |
-| GET | `/api/v1/devices/{id}/export.csv?hours=` | Basic Auth | 下载温度、湿度和 CO₂ CSV |
+| GET | `/api/v1/devices/{id}/export.csv?hours=&from_ts=&to_ts=` | Basic Auth | 下载所选范围内的原始温度、湿度和 CO₂ CSV |
 | GET | `/healthz` | Basic Auth | 健康检查（在 Nginx 后需密码；`127.0.0.1` 上直连不需要） |
 
 `/docs`、`/redoc`、`/openapi.json` **已主动关闭**：裸 IP 无域名遮蔽，少一个暴露面。
+
+### 新看板与原始历史分页
+
+看板将执行器状态与控制合并为卡片，支持电脑/手机和深浅主题。温度、湿度、CO₂ 为三个独立趋势图，共用时间范围；CO₂ 纵轴固定为 `0–100000`。远控按钮仅在 `ws_connected=true` 时可用，目标温度及亮度输入不会被自动刷新覆盖。
+
+1 小时、6 小时、24 小时、7 天及自定义范围均显示原始采样，不取分钟平均；悬停/触摸查看原始点，拖动框选或使用按钮缩放时间轴。CSV 使用当前查看范围，包括缩放后的范围，时间列为 UTC。
+
+历史接口每页默认 2000 点，`limit` 最大为 5000。第一页返回 `from_ts`、`to_ts`、`snapshot_id`、`last_cursor` 与 `next_cursor`；下一页需重复相同起止时间及快照 ID，并将 `next_cursor` 作为 `cursor`，直到 `next_cursor=null`。时间与 ID 联合游标可保留同一秒内的多条采样。原始浮点值不作二次舍入。显式 `step` 聚合接口保留旧的 2000 点上限，网页不使用该模式。
+
+网页缓存已加载的范围，实时窗口后续只获取末尾游标之后的新点，并移除过期点。自定义范围需同时提供 `from_ts` 和 `to_ts`（Unix 秒），跨度大于 0 且不超过 30 天。7 天按 10 秒采样约 60,480 点，首次加载比短范围耗时更长。
+
+开发验证：
+
+```bash
+python -m pip install playwright
+python -m playwright install chromium
+python server/tests/test_dashboard_browser.py --output /tmp/incubator-dashboard-preview
+```
+
+如已安装 Edge/Chrome，可用 `--browser-executable` 指定浏览器路径。浏览器测试使用临时数据库和模拟设备，不接触实际设备；服务器运行无需安装 Playwright。
 
 ### 上报载荷
 
@@ -115,13 +139,16 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 远程命令沿用 `set_fan`，参数为 `{"enabled":true,"power":60}`。
 `power` 必须为 0～100 的整数；`enabled=false` 或 `power=0` 均停止输出。
 旧命令省略 `power` 时，开启为 100%，关闭为 0%。网页的开关按钮保持此行为，
-独立的“设置风扇输出”按钮可在运行中调整百分比；远程修改沿用现有自动保存流程。
+风扇卡片内的滑块与百分比输入框联动，点击“应用”可在运行中调整输出，
+定时刷新会保留尚未提交的输入；远程修改沿用现有自动保存流程。
 升级服务器后已有数据库自动补充 `fan_pct` 字段，旧样本或旧固件缺少该字段时保留 NULL，
 网页仅显示其开关状态。建议先更新服务器，再更新固件。
 
 ---
 
 ## 4. 部署（手动模式）
+
+**已有 HTTPS 服务的相机升级请使用 [CAMERA_UPGRADE.md](deploy/CAMERA_UPGRADE.md)**，其中包含备份和恢复步骤。下方是安装脚本原有流程；旧脚本的 `--with-nginx` 在校验失败时会删除目标配置，不能恢复已存在的 HTTPS 文件。
 
 把整个 `server/` 打包上传到服务器（宝塔文件管理器），解压到 `/tmp` 下任意位置，然后：
 
@@ -175,7 +202,7 @@ sudo nano /etc/incubator/devices.json       # 无需重启：服务按 mtime 自
 sudo -u incubator sqlite3 /var/lib/incubator/data.db \
   "SELECT datetime(recv_ts,'unixepoch','+8 hours') t, temperature, heater_pwm FROM telemetry ORDER BY recv_ts DESC LIMIT 10;"
 
-# 备份（数据库是唯一有状态的资产）
+# 遥测数据库备份（相机启用后还需同时保留 photos/，见相机升级说明）
 sudo systemctl stop incubator-api
 sudo cp /var/lib/incubator/data.db /root/incubator-$(date +%F).db
 sudo systemctl start incubator-api
@@ -242,3 +269,63 @@ Serial.printf("[CO2] Reading OK: %lu ppm ...", scaledPpm);   // 打印成 ppm，
 | 3 | 看板的 `co2_pct` 换算显示（等 #1 确认） | P3 |
 | 4 | WebSocket 远控实机联调（需上传本目录并烧录对应固件） | 固件/服务器 |
 | 5 | ICP 备案后可切域名 + LE 证书（**可选**，只为消除浏览器证书警告） | 可选 |
+
+## 10. 相机拍照与图库（前三项已完成本地模拟验证）
+
+已实现相机独立 WebSocket、手动拍照任务、HTTP 单次图片上传、任务状态查询、原图读取下载、单定时任务、任务超时、服务器重启恢复、图库页面、环境数据关联和批量删除。完整目标见 `../docs/CAMERA_CAPTURE_PLAN.md`。相机 Nginx 通道、照片目录、systemd 参数和升级步骤已提供，尚未部署到公网服务器或进行真实摄像头联调。
+
+新增文件：`camera_api.py`、`tests/test_camera_schedule.py`；数据库新增 `camera_captures`、`camera_photos` 和 `camera_schedule`。更新时需重复应用 `schema.sql`，部署脚本会安装新模块。相机测试依赖仓库中的开发模拟器，从完整仓库运行，不改变仅打包 `server/` 的部署方式。
+
+### 配置
+
+| 环境变量 | 当前默认值 | 用途 |
+|---|---|---|
+| `INCUBATOR_CAMERA_ID` | `camera-001` | 相机设备标识，必须对应现有 devices.json 中的独立 Token |
+| `INCUBATOR_CAMERA_PHOTOS` | 数据库所在目录下的 `photos/` | 原图目录，服务账号需有写权限 |
+| `INCUBATOR_CAMERA_OFFLINE_S` | `45` | 心跳离线判断秒数，开发暂定值 |
+| `INCUBATOR_CAMERA_MAX_BYTES` | `16777216`（16 MiB） | 单张上传上限，开发暂定值 |
+| `INCUBATOR_CAMERA_TASK_TIMEOUT_S` | `120` | 单次拍照任务超时秒数，开发暂定值 |
+
+相机 Token 放入现有设备配置，不写入数据库。不要覆盖原有 ESP32 的 Token。图片暂支持 JPEG 和 PNG，硬件格式尚未确定；只检查文件头匹配声明类型，不修改图片内容、不单独记录尺寸或文件大小。
+
+### 当前通信契约
+
+- WebSocket `/api/v1/camera-stream`：Bearer 必须属于配置的相机设备。
+- 服务器先返回 `{"type":"connected","device_id":"camera-001"}`。
+- 相机发送 `{"type":"hello","busy":false}` 后才可接受任务；心跳为 `{"type":"heartbeat","busy":false}`，执行中报告 `busy:true`。
+- 手动 `POST /api/v1/camera/captures`：成功为 `201`，返回任务编号及 `pending` 状态；离线为 `503`，设备忙或未就绪为 `409`，响应含失败任务编号和原因。
+- 服务器下发 `{"type":"capture","task_id":"..."}`。
+- 相机发送 `{"type":"capture_status","task_id":"...","status":"capturing"}`，再发送 `uploading`，服务器各返回 `capture_status_ack`；失败时发送 `failed` 和 `reason`。
+- 相机单次 `POST /api/v1/camera/captures/{task_id}/image?captured_at=<Unix秒，可带小数>`，Bearer 鉴权，正文为原始图片字节，`Content-Type` 为 `image/jpeg` 或 `image/png`。无需 multipart 依赖。
+- 保存成功为 `201`，返回照片编号、拍摄时间、文件名和 `file_url`。服务器保存后才将任务置为 `completed`；相机不能自行报告完成。
+- `GET /api/v1/camera/status` 返回在线、就绪、忙状态与当前任务编号；`GET /api/v1/camera/captures/{task_id}` 返回任务状态。
+- `GET /api/v1/camera/schedule` 返回定时开关、间隔和下次触发时间；`PUT` 接收 `{"enabled":true,"interval_s":600}`，启用时立即尝试一次，忙或离线记为 `skipped`。
+- `GET /api/v1/camera/photos/{photo_id}` 获取照片信息；`GET /api/v1/camera/photos/{photo_id}/file` 显示原图，加 `?download=true` 下载原图。
+- `GET /api/v1/camera/photos?page=1&page_size=12` 按拍摄时间、照片编号倒序分页，返回 `items/total/page/page_size`，每页最多 100 张；`GET /api/v1/camera/photos/latest` 返回最新照片信息，无照片返回 JSON `null`。
+- 照片详情中的 `environment` 返回单培养箱拍摄前后 30 秒内最近一条遥测（等距取较早记录），包含实际采样时间、温湿度和 CO₂ 及其有效状态；没有匹配时为 `null`。沿用首页设备顺序，排除独立相机设备，不保存环境数据副本。
+- `POST /api/v1/camera/photos/delete` 接收 `{"photo_ids":["..."]}`（1–100 项），去重后逐项删除文件、照片和对应任务，返回 `deleted` 编号列表及 `failed` 中的编号和原因；原始遥测不删除。
+- 相机状态新增 `latest_task`，用于显示最近任务的完成、失败或跳过原因；当前任务仍可按编号查询。
+
+### 网页使用
+
+首页底部显示最新照片和相机入口。`/camera.html` 支持手动拍照、定时开关与秒数间隔、最新照片、每页 12 张图库、照片详情、附近环境数据和下载原图。勾选照片或全选当前页后，确认一次批量删除；下载不会删除照片。
+
+详情可放大、旋转 90°、水平翻转、按左右或上下两侧对称裁剪。调整仅在浏览器查看中生效，关闭后不保存，下载始终为原文件。图库直接使用原图缩小显示，不生成独立缩略图。页面支持浅色和深色主题，以及手机布局。
+
+任务状态值为 `pending`、`capturing`、`uploading`、`completed`、`failed`、`skipped`。正在执行时不接受第二项任务；重复或迟到上传返回 `409`，不会生成第二张照片。连接正常断开时，未完成任务记录为失败。任务超过 `INCUBATOR_CAMERA_TASK_TIMEOUT_S` 后记录 `capture_timeout`。服务器重启时未完成任务记录为 `server_restarted`，已启用的定时配置恢复并立即尝试一次。照片已保存但 HTTP 回应丢失时，服务器完成状态不会因相机后续失败回报而被覆盖。
+
+任务超时和启动恢复已完成本地模拟验证；设备保持连接但不回报时，服务器会在配置的任务超时后结束任务。暂无自动清理期限。
+
+### 验证
+
+```powershell
+python server/tests/test_camera_capture.py
+python server/tests/test_camera_schedule.py
+python server/tests/test_api_smoke.py
+python server/tests/test_websocket_control.py
+python server/tests/test_camera_gallery.py
+```
+
+图库浏览器测试需要已有 Playwright 和 Chromium；也可指定本机浏览器，例如 `python server/tests/test_camera_gallery.py --browser-executable 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'`。测试使用临时数据库和模拟相机，不操作真实设备。
+
+模拟器使用方法见 `../camera/README.md`。本地手动运行服务器时，将 `INCUBATOR_DB`、`INCUBATOR_DEVICES` 指向测试文件，先用 Python 的 `sqlite3.Connection.executescript` 应用 `schema.sql`，再在 `server/` 目录运行 `python -m uvicorn app:app --host 127.0.0.1 --port 8000`。

@@ -76,3 +76,35 @@ CREATE TABLE IF NOT EXISTS remote_commands (
 
 CREATE INDEX IF NOT EXISTS idx_remote_commands_device
   ON remote_commands(device_id, created_ts DESC);
+
+CREATE TABLE IF NOT EXISTS camera_captures (
+  task_id     TEXT PRIMARY KEY,
+  device_id   TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  status      TEXT NOT NULL,
+  created_at  REAL NOT NULL,
+  finished_at REAL,
+  reason      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_captures_created
+  ON camera_captures(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS camera_photos (
+  photo_id    TEXT PRIMARY KEY,
+  task_id     TEXT NOT NULL UNIQUE,
+  captured_at REAL NOT NULL,
+  filename    TEXT NOT NULL UNIQUE,
+  FOREIGN KEY (task_id) REFERENCES camera_captures(task_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_photos_captured
+  ON camera_photos(captured_at DESC, photo_id DESC);
+
+CREATE TABLE IF NOT EXISTS camera_schedule (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled    INTEGER NOT NULL DEFAULT 0,
+  interval_s INTEGER NOT NULL DEFAULT 600 CHECK (interval_s >= 1)
+);
+
+INSERT OR IGNORE INTO camera_schedule (id, enabled, interval_s) VALUES (1, 0, 600);
