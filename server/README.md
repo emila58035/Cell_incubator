@@ -28,7 +28,8 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 
 | 路径 | 说明 |
 |---|---|
-| `app.py` | 全部服务端逻辑（FastAPI 路由、校验、鉴权、告警、查询） |
+| `app.py` | 主服务、遥测、鉴权、告警、查询与远程控制 |
+| `camera_api.py` | 相机连接、拍照任务、间隔调度、照片与环境关联 |
 | `schema.sql` | 三张表 + 索引；每条语句幂等，可直接对已存在的库重复执行 |
 | `static/index.html` | 看板与远程控制。**零外部依赖**（不引 CDN、不引图表库），手写 canvas 画曲线 |
 | `tests/test_api_smoke.py` | HTTP 契约冒烟测试。只用标准库 + 真实 uvicorn 子进程 |
@@ -37,12 +38,14 @@ IP 叶子证书**，SAN 必须含 `IP:175.24.182.190`。
 | `deploy/setup.sh` | 幂等安装脚本（见 §4） |
 | `deploy/incubator-api.service` | systemd 单元，只绑 `127.0.0.1:8000` |
 | `deploy/incubator-https.conf` | Nginx 443 前端的**独立新文件**，不修改既有配置 |
+| `deploy/CAMERA_UPGRADE.md` | 现有服务器相机升级、备份、Nginx 校验与恢复、实机验收步骤 |
 
 服务器上的落点：
 
 ```
 /opt/incubator/app/            venv + app.py + schema.sql + static/ + tests/
 /var/lib/incubator/data.db     SQLite（WAL）
+/var/lib/incubator/photos/     相机原图（与数据库一并保留）
 /etc/incubator/devices.json    设备 Token（640 root:incubator）
 /etc/incubator/certs/          自签 CA 与 IP 叶子证书（*.key 600）
 /etc/nginx/incubator.htpasswd  看板 Basic Auth（640 root:<nginx user>）
@@ -131,6 +134,8 @@ python server/tests/test_dashboard_browser.py --output /tmp/incubator-dashboard-
 
 ## 4. 部署（手动模式）
 
+**已有 HTTPS 服务的相机升级请使用 [CAMERA_UPGRADE.md](deploy/CAMERA_UPGRADE.md)**，其中包含备份和恢复步骤。下方是安装脚本原有流程；旧脚本的 `--with-nginx` 在校验失败时会删除目标配置，不能恢复已存在的 HTTPS 文件。
+
 把整个 `server/` 打包上传到服务器（宝塔文件管理器），解压到 `/tmp` 下任意位置，然后：
 
 ```bash
@@ -183,7 +188,7 @@ sudo nano /etc/incubator/devices.json       # 无需重启：服务按 mtime 自
 sudo -u incubator sqlite3 /var/lib/incubator/data.db \
   "SELECT datetime(recv_ts,'unixepoch','+8 hours') t, temperature, heater_pwm FROM telemetry ORDER BY recv_ts DESC LIMIT 10;"
 
-# 备份（数据库是唯一有状态的资产）
+# 遥测数据库备份（相机启用后还需同时保留 photos/，见相机升级说明）
 sudo systemctl stop incubator-api
 sudo cp /var/lib/incubator/data.db /root/incubator-$(date +%F).db
 sudo systemctl start incubator-api
@@ -253,7 +258,7 @@ Serial.printf("[CO2] Reading OK: %lu ppm ...", scaledPpm);   // 打印成 ppm，
 
 ## 10. 相机拍照与图库（前三项已完成本地模拟验证）
 
-已实现相机独立 WebSocket、手动拍照任务、HTTP 单次图片上传、任务状态查询、原图读取下载、单定时任务、任务超时、服务器重启恢复、图库页面、环境数据关联和批量删除。完整目标见 `../docs/CAMERA_CAPTURE_PLAN.md`。尚未进行真实摄像头与公网 Nginx 联调；现有 Nginx 配置的相机专属通道留待部署项补齐。
+已实现相机独立 WebSocket、手动拍照任务、HTTP 单次图片上传、任务状态查询、原图读取下载、单定时任务、任务超时、服务器重启恢复、图库页面、环境数据关联和批量删除。完整目标见 `../docs/CAMERA_CAPTURE_PLAN.md`。相机 Nginx 通道、照片目录、systemd 参数和升级步骤已提供，尚未部署到公网服务器或进行真实摄像头联调。
 
 新增文件：`camera_api.py`、`tests/test_camera_schedule.py`；数据库新增 `camera_captures`、`camera_photos` 和 `camera_schedule`。更新时需重复应用 `schema.sql`，部署脚本会安装新模块。相机测试依赖仓库中的开发模拟器，从完整仓库运行，不改变仅打包 `server/` 的部署方式。
 

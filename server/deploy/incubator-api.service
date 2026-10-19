@@ -15,6 +15,11 @@ WorkingDirectory=/opt/incubator/app
 Environment=INCUBATOR_DB=/var/lib/incubator/data.db
 Environment=INCUBATOR_DEVICES=/etc/incubator/devices.json
 Environment=INCUBATOR_STATIC=/opt/incubator/app/static
+Environment=INCUBATOR_CAMERA_ID=camera-001
+Environment=INCUBATOR_CAMERA_PHOTOS=/var/lib/incubator/photos
+Environment=INCUBATOR_CAMERA_MAX_BYTES=16777216
+Environment=INCUBATOR_CAMERA_TASK_TIMEOUT_S=120
+Environment=INCUBATOR_CAMERA_OFFLINE_S=45
 
 # 127.0.0.1 only. Nginx terminates TLS and enforces Basic Auth; this process
 # must never be reachable from the public interface (REMOTE_MONITORING 5.3).
@@ -27,7 +32,7 @@ RestartSec=3
 # a visible `failed` state instead of spinning forever.
 
 # Hardening. The service only needs to read the app and the token file and to
-# write the SQLite database.
+# write the SQLite database and camera photos under /var/lib/incubator.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

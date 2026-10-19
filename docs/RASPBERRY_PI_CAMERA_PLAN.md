@@ -48,7 +48,7 @@
 
 HTTPS 和 WSS 使用同一 CA 文件校验现有服务器证书，不复制 CA 私钥，不关闭校验。不增加相机专属用户、权限分级或审批机制。
 
-当前仓库的 `server/deploy/incubator-https.conf` 尚无相机专属 location。公网联调前需补充：
+当前仓库的 `server/deploy/incubator-https.conf` 已提供相机专属 location；现有服务器尚未应用。公网联调前需按 `server/deploy/CAMERA_UPGRADE.md` 部署并验证：
 
 - 相机 WebSocket 转发和 Upgrade 请求头。
 - 图片上传路由采用设备 Bearer 识别，不套用网页 Basic Auth。

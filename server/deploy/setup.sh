@@ -56,6 +56,7 @@ else
 fi
 install -d -o incubator -g incubator -m 0755 "$APP_DIR"
 install -d -o incubator -g incubator -m 0750 "$DATA_DIR"
+install -d -o incubator -g incubator -m 0750 "$DATA_DIR/photos"
 install -d -o root      -g incubator -m 0750 "$CONF_DIR"
 install -d -o root      -g root      -m 0700 "$CERT_DIR"
 
