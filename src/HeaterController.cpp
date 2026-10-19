@@ -18,6 +18,7 @@ void HeaterController::begin(SystemState &state) {
   pid_.SetOutputLimits(0, Config::HeaterPwmMaximum);
   pid_.SetSampleTime(Config::AhtSampleIntervalMs);
   pid_.SetMode(MANUAL);
+  resetPrediction();
   publishOutput(state, 0);
 
   Serial.printf("[HEATER] Ready on GPIO%d; startup state=OFF\n",
@@ -28,6 +29,7 @@ void HeaterController::update(SystemState &state) {
   // The heating switch is controlled solely by user input.
   if (!state.heatingEnabled) {
     sensorFault_ = false;
+    resetPrediction();
     stop(state);
     return;
   }
@@ -39,6 +41,7 @@ void HeaterController::update(SystemState &state) {
       Serial.println(
           "[HEATER] Sensor fault: heating paused, switch stays ON");
     }
+    resetPrediction();
     stop(state);
     return;
   }
@@ -67,8 +70,29 @@ void HeaterController::update(SystemState &state) {
   }
 
   pid_.Compute();
-  const uint32_t duty =
+  const uint32_t pidDuty =
       (uint32_t)constrain(output_, 0.0, (double)Config::HeaterPwmMaximum);
+  uint32_t duty = pidDuty;
+  const uint32_t now = millis();
+  if (!hasPredictiveSample_ ||
+      now - lastPredictiveSampleMs_ >= Config::PredictiveLogIntervalMs) {
+    const double basePwm = constrain(
+        (setpoint_ - Config::PredictiveAmbientCelsius) /
+            Config::PredictiveFullPwmRiseCelsius * Config::HeaterPwmMaximum,
+        0.0, (double)Config::HeaterPwmMaximum);
+    const double predictedTemperature =
+        predictTemperature(input_, static_cast<double>(pidDuty));
+    const double blendedPwm =
+        logPrediction(state, predictedTemperature, basePwm,
+                      static_cast<double>(pidDuty));
+    duty = static_cast<uint32_t>(round(blendedPwm));
+    predictiveControlDuty_ = duty;
+    recordPredictionSample(duty);
+    lastPredictiveSampleMs_ = now;
+    hasPredictiveSample_ = true;
+  } else if (Config::PredictiveBlend > 0.0) {
+    duty = predictiveControlDuty_;
+  }
   writeHeaterDuty(duty);
   publishOutput(state, duty);
 }
@@ -80,6 +104,7 @@ void HeaterController::stop(SystemState &state) {
   }
 
   output_ = 0.0;
+  resetPrediction();
   writeHeaterDuty(0);
   publishOutput(state, 0);
 }
@@ -100,4 +125,87 @@ void HeaterController::publishOutput(SystemState &state, uint32_t duty) {
     state.markDisplayDirty();
   }
   lastDuty_ = duty;
+}
+
+void HeaterController::resetPrediction() {
+  pwmHistory_.fill(0.0);
+  pwmHistoryCount_ = 0;
+  pwmHistoryHead_ = 0;
+  lastPredictiveSampleMs_ = 0;
+  hasPredictiveSample_ = false;
+  predictivePwm_ = 0.0;
+  hasPredictivePwm_ = false;
+  predictiveControlDuty_ = 0;
+}
+
+void HeaterController::recordPredictionSample(uint32_t duty) {
+  pwmHistory_[pwmHistoryHead_] = static_cast<double>(duty);
+  pwmHistoryHead_ =
+      (pwmHistoryHead_ + 1) % Config::PredictiveHistorySeconds;
+  if (pwmHistoryCount_ < Config::PredictiveHistorySeconds) {
+    ++pwmHistoryCount_;
+  }
+}
+
+double HeaterController::predictTemperature(double temperature,
+                                             double candidatePwm) const {
+  const uint16_t delaySteps = static_cast<uint16_t>(round(
+      Config::PredictiveDelaySeconds));
+  const uint16_t horizonSteps = Config::PredictiveHorizonSeconds;
+  const double dt = 1.0;
+  double predicted = temperature;
+
+  for (uint16_t step = 0; step < horizonSteps; ++step) {
+    double delayedPwm = candidatePwm;
+    if (step < delaySteps && pwmHistoryCount_ > 0) {
+      const int32_t relativeIndex =
+          static_cast<int32_t>(pwmHistoryCount_) - delaySteps + step;
+      if (relativeIndex >= 0) {
+        const uint16_t oldestIndex =
+            (pwmHistoryHead_ + Config::PredictiveHistorySeconds -
+             pwmHistoryCount_) %
+            Config::PredictiveHistorySeconds;
+        const uint16_t index =
+            (oldestIndex + static_cast<uint16_t>(relativeIndex)) %
+            Config::PredictiveHistorySeconds;
+        delayedPwm = pwmHistory_[index];
+      }
+    }
+
+    const double equilibriumTemperature =
+        Config::PredictiveAmbientCelsius +
+        Config::PredictiveFullPwmRiseCelsius *
+            delayedPwm / Config::HeaterPwmMaximum;
+    predicted +=
+        (equilibriumTemperature - predicted) * dt /
+        Config::PredictiveTimeConstantSeconds;
+  }
+  return predicted;
+}
+
+double HeaterController::logPrediction(const SystemState &state,
+                                       double predictedTemperature,
+                                       double basePwm,
+                                       double pidPwm) {
+  const double requestedPwm = constrain(
+      basePwm + Config::PredictiveFeedbackGainPwmPerCelsius *
+                    (state.setpoint - predictedTemperature),
+      0.0, static_cast<double>(Config::HeaterPwmMaximum));
+  if (!hasPredictivePwm_) {
+    predictivePwm_ = pidPwm;
+    hasPredictivePwm_ = true;
+  }
+  predictivePwm_ += constrain(requestedPwm - predictivePwm_,
+                              -Config::PredictiveMaximumPwmStep,
+                              Config::PredictiveMaximumPwmStep);
+  const double blendPwm = constrain(
+      pidPwm + Config::PredictiveBlend * (predictivePwm_ - pidPwm), 0.0,
+      static_cast<double>(Config::HeaterPwmMaximum));
+  Serial.printf(
+      "[PREDICT] temp=%.2f set=%.2f pwm=%.0f base=%.1f pred_pwm=%.1f "
+      "blend_pwm=%.1f blend=%.2f pred_%us=%.2f\n",
+      state.temperature, state.setpoint, pidPwm, basePwm, predictivePwm_,
+      blendPwm, Config::PredictiveBlend, Config::PredictiveHorizonSeconds,
+      predictedTemperature);
+  return blendPwm;
 }

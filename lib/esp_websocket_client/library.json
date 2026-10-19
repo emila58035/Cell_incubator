@@ -1,0 +1,12 @@
+{
+  "name": "esp_websocket_client",
+  "version": "1.2.3",
+  "description": "Espressif WebSocket client for ESP-IDF 5.x, bundled for Arduino-ESP32 3.0.7.",
+  "license": "Apache-2.0",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}

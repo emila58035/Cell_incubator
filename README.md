@@ -68,7 +68,9 @@ pio run                 # 生产固件（排除 SensorSimulator.cpp）
 pio run -e sim          # 模拟构建（含合成传感器，版本号 0.1.0-sim，绝不能烧到接执行器的板子）
 ```
 
-⚠️ 首次构建需从 GitHub 拉取 `platform_packages` 里钉住的 `arduino-esp32 3.0.7` 与 `esp32-arduino-libs`。中国大陆直连 `github.com:443` 经常超时，需自备可用网络。
+构建使用 PlatformIO Core >= 6.1.16，固定 pioarduino `51.03.07`（Arduino-ESP32 **3.0.7** 及配套 SDK/工具链）。WebSocket 客户端 **1.2.3** 源码已包含在 `lib/esp_websocket_client`，无需单独复制头文件或静态库。
+
+打包发送时保留 `platformio.ini`、`src`、`lib` 和根目录分区表 CSV；`.pio` 是构建缓存，无需打包。接收方首次编译需要联网下载依赖，并能访问 GitHub 发布下载地址。
 
 ### 凭据文件（联网必需）
 

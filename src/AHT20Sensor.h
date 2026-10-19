@@ -13,6 +13,8 @@ class AHT20Sensor {
  private:
   AHT20 sensor_;
   bool available_ = false;
+  bool hasPreviousTemperature_ = false;
+  float previousTemperature_ = NAN;
   uint32_t lastSampleTime_ = 0;
   uint32_t lastConnectAttemptTime_ = 0;
 

@@ -27,11 +27,13 @@ bool AHT20Sensor::connect(uint32_t now, SystemState &state) {
   available_ = sensor_.begin();
 
   if (!available_) {
+    hasPreviousTemperature_ = false;
     state.invalidateClimate();
     Serial.println("[AHT20] ERROR: sensor not detected");
     return false;
   }
 
+  hasPreviousTemperature_ = false;
   Serial.printf("[AHT20] Ready on SDA=GPIO%d, SCL=GPIO%d\n",
                 Config::AhtSdaPin, Config::AhtSclPin);
   sample(now, state);
@@ -58,11 +60,23 @@ void AHT20Sensor::sample(uint32_t now, SystemState &state) {
     return;
   }
 
+  if (hasPreviousTemperature_ &&
+      fabsf(temperature - previousTemperature_) >
+          Config::AhtMaximumTemperatureStepCelsius) {
+    state.invalidateClimate();
+    Serial.printf(
+        "[AHT20] ERROR: temperature jump %.2f -> %.2f C; sample rejected\n",
+        previousTemperature_, temperature);
+    return;
+  }
+
   const float humidity = sensor_.getHumidity();
   const bool humidityValid =
       isfinite(humidity) && humidity >= 0.0f && humidity <= 100.0f;
 
   state.setClimate(temperature, humidity, humidityValid);
+  previousTemperature_ = temperature;
+  hasPreviousTemperature_ = true;
   Serial.printf("[AHT20] Temperature=%.2f C, Humidity=%.2f %%\n",
                 temperature, humidity);
 
