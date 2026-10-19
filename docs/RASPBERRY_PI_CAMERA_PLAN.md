@@ -1,21 +1,21 @@
 # 树莓派 USB 相机端开发方案
 
-更新时间：2026-10-17。
+更新时间：2026-10-19。
 
-本文细化 `CAMERA_CAPTURE_PLAN.md` 中第四项“树莓派程序、systemd 和配置示例”，作为后续开发依据。本次只整理方案，不代表已完成树莓派适配或实机验证。
+本文细化 `CAMERA_CAPTURE_PLAN.md` 中第四项“树莓派程序、systemd 和配置示例”，作为后续开发依据。USB 采集模块已实现并通过本机替身测试；正式通信客户端和部署材料尚待实现，端到端实机联调未完成。
 
 ## 1. 已确认环境
 
 | 项目 | 当前信息 |
 |---|---|
 | 主机 | Raspberry Pi 4B，2 GB 内存 |
-| 系统 | Debian 10 Buster；Python、OpenCV 版本和系统位数尚未取得 |
+| 系统 | 实测 Raspbian GNU/Linux 10 Buster；Python 3.7.3、OpenCV 3.2.0、armv7l（32 位） |
 | 相机 | USB 摄像头，具体型号待补充 |
-| 已有实测 | 用户通过 `cv2.VideoCapture(0)` 成功打开摄像头、读取画面并显示 |
+| 已有实测 | `cv2.VideoCapture(0)` 预览成功；SSH 无窗口单张 JPEG 写入成功，退出码 0 |
 | 网络 | Wi-Fi，由系统负责接入 |
 | 设备关系 | 单培养箱、单相机；树莓派独立连接服务器，不经过 ESP32 |
 
-用户实测支持选择 OpenCV 路线，但尚不能据此认定无桌面拍照、JPEG 写入、开机自启和公网上传已经验证。
+用户 `pi` 已在 `video` 组；NTP 已同步，时区 Asia/Shanghai。`~/incubator/.venv-camera` 已验证可导入系统 OpenCV 3.2.0 和 websockets 11.0.3。服务器 443 可达，使用 `~/incubator-ca.pem` 验证服务器证书成功，协商 TLSv1.3。开机自启和公网上传尚未验证。
 
 ## 2. 技术选择与兼容性
 
@@ -23,17 +23,17 @@
 
 首版不要求升级系统、不编译 OpenCV，不引入 CSI 相机库、录像、视频流或远程预览。优先使用树莓派现有可用的 `cv2`，分辨率和曝光沿用设备默认值，不新增网页拍摄质量设置。
 
-Buster 通常提供 Python 3.7，具体以树莓派输出为准。现有 `camera/simulator.py` 是开发模拟器，使用现代 Python 和 `websockets >= 14`，不能直接作为 Buster 客户端。树莓派程序独立适配，保持服务器协议不变：
+实机已确认 Python 3.7.3。现有 `camera/simulator.py` 是开发模拟器，使用现代 Python 和 `websockets >= 14`，不能直接作为 Buster 客户端。树莓派程序独立适配，保持服务器协议不变：
 
 - 以 Python 3.7 可运行的语法和标准库接口编写，不使用 `asyncio.to_thread` 等较新接口。
-- 若实机确认为 Python 3.7，计划固定 `websockets==11.0.3`，使用兼容的连接 API 和 `extra_headers` 参数；安装与运行结果仍需实机确认。
+- 固定 `websockets==11.0.3`，使用兼容的连接 API 和 `extra_headers` 参数；实机已验证安装及导入，实际 WSS 接入待验证。
 - HTTP 上传使用标准库 `urllib.request`，不额外引入 HTTP 客户端。
 - 如使用虚拟环境，需让其能访问现有 OpenCV；系统安装的 `python3-opencv` 可通过 `--system-site-packages` 使用，不默认重新安装另一套 OpenCV。
 - 服务器继续使用现有 Python 环境，不随树莓派端降级依赖。
 
 ## 3. 服务器接入
 
-以下信息来自 `REMOTE_ACCESS.md`、`REMOTE_ACCESS_GUIDE.md`、`server/README.md` 和当前服务器代码；本次未连接服务器验证部署现状。
+接入约定来自 `REMOTE_ACCESS.md`、`REMOTE_ACCESS_GUIDE.md`、`server/README.md` 和当前服务器代码。2026-10-19 用户在服务器 SSH 实测服务 active，但 `/opt/incubator/app/camera_api.py` 不存在；Nginx 仍仅配置遥测、ESP32 和网页入口，相机功能尚未部署。
 
 | 项目 | 约定 |
 |---|---|
@@ -97,7 +97,7 @@ JPEG 是首版编码选择，硬件具体分辨率、默认画面清晰度和编
 | `camera/deploy/incubator-camera.service` | systemd 开机启动与异常退出重启 |
 | `camera/README.md` | 安装、前台试运行、自启动、查看日志和停止服务说明 |
 
-这些是计划新增内容，不在方案整理阶段创建运行代码。现有模拟器继续作为开发测试工具，不改成真实驱动。
+其中 `camera/usb_capture.py` 已实现，其余文件待开发。现有模拟器继续作为开发测试工具，不改成真实驱动。
 
 树莓派建议安装位置：程序 `/opt/incubator-camera/`，配置与 CA 公钥证书 `/etc/incubator-camera/`，专用临时目录 `/var/lib/incubator-camera/tmp/`。
 
@@ -129,7 +129,7 @@ systemd 在网络就绪后启动，进程异常退出自动重启。服务使用
 
 ## 8. 首次实机需要补充的结果
 
-不影响先开展本地开发；安装与实机验证前收集以下输出：
+以下基础信息已由用户提供并更新至第一节，无需重复收集：
 
 ```sh
 python3 --version
@@ -139,4 +139,4 @@ ls -l /dev/video*
 timedatectl status
 ```
 
-同时确认运行预览脚本时实际使用的 Python 命令或虚拟环境、计划运行服务的 Linux 账号。摄像头型号、默认分辨率及一次拍照耗时可在首次实拍时补充；暂不要求远程登录密码或 Wi-Fi 密码。
+运行账号已确认 `pi`，虚拟环境路径见第一节。摄像头型号、默认分辨率及本模块一次拍照耗时可在后续实拍时补充；暂不要求远程登录密码或 Wi-Fi 密码。
