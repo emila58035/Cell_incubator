@@ -2,7 +2,7 @@
 
 更新时间：2026-10-19。
 
-本文细化 `CAMERA_CAPTURE_PLAN.md` 中第四项“树莓派程序、systemd 和配置示例”，作为后续开发依据。USB 采集模块与通信客户端已实现，分别通过本机替身测试和临时服务器联调；systemd 部署材料尚待实现，端到端实机联调未完成。
+本文细化 `CAMERA_CAPTURE_PLAN.md` 中第四项“树莓派程序、systemd 和配置示例”，作为后续开发依据。USB 采集模块与通信客户端已实现，分别通过本机替身测试和临时服务器联调；配置示例、systemd 单元和安装说明已提供，尚未部署到树莓派，端到端实机联调未完成。
 
 ## 1. 已确认环境
 
@@ -97,11 +97,13 @@ JPEG 是首版编码选择，硬件具体分辨率、默认画面清晰度和编
 | `camera/deploy/incubator-camera.service` | systemd 开机启动与异常退出重启 |
 | `camera/README.md` | 安装、前台试运行、自启动、查看日志和停止服务说明 |
 
-其中 `camera/usb_capture.py`、`camera/client.py`、`camera/requirements-pi.txt` 已实现，README 已提供前台运行说明；配置示例与 systemd 单元待开发。现有模拟器继续作为开发测试工具，不改成真实驱动。
+上述文件均已提供，README 包含安装、前台验证、自启动、日志、停止和更新步骤。现有模拟器继续作为开发测试工具，不改成真实驱动。
 
 树莓派建议安装位置：程序 `/opt/incubator-camera/`，配置与 CA 公钥证书 `/etc/incubator-camera/`，专用临时目录 `/var/lib/incubator-camera/tmp/`。
 
-systemd 在网络就绪后启动，进程异常退出自动重启。服务使用有视频设备访问权限的普通账号（加入 `video` 组），不依赖桌面登录。网络就绪目标不能保证 Wi-Fi 已连通，客户端仍需处理连接失败和重连。
+systemd 在网络就绪后启动，进程异常退出 5 秒后自动重启。服务使用已确认的 `pi` 账号和 `video` 补充组，不依赖桌面登录。服务虚拟环境位于 `/opt/incubator-camera/venv`，通过 `--system-site-packages` 使用系统 OpenCV。网络就绪目标不能保证 Wi-Fi 已连通，客户端仍需处理连接失败和重连。
+
+单元采用 `KillMode=mixed`，停止时先通知主进程清理，最多等待 120 秒后强制结束剩余进程；强制结束遗留的本程序照片由下次启动清理，不补传。该停止期限是部署暂定值，仍需实机确认。
 
 树莓派程序与服务器独立更新。首次安装先前台验证拍照与上传，再启用开机启动，避免同时运行测试预览与后台服务占用同一摄像头。
 
