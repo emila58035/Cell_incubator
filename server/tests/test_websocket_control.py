@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 import websockets
@@ -54,28 +55,44 @@ async def run() -> None:
         await socket.send(json.dumps({"type": "hello"}))
         assert json.loads(await socket.recv())["type"] == "hello_ack"
 
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{PORT}/api/v1/devices/incubator-001/commands",
-            method="POST",
-            data=json.dumps({"command": "set_fan", "params": {"enabled": True}}).encode(),
-            headers={"Content-Type": "application/json", "X-Requested-With": "dashboard"},
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            command = json.load(response)
-        pushed = json.loads(await socket.recv())
-        assert pushed["command_id"] == command["command_id"]
-        assert pushed["command"] == "set_fan"
+        def request_for(params: dict) -> urllib.request.Request:
+            return urllib.request.Request(
+                f"http://127.0.0.1:{PORT}/api/v1/devices/incubator-001/commands",
+                method="POST",
+                data=json.dumps({"command": "set_fan", "params": params}).encode(),
+                headers={"Content-Type": "application/json", "X-Requested-With": "dashboard"},
+            )
 
-        await socket.send(json.dumps({
-            "type": "command_ack", "command_id": command["command_id"], "status": "applied"
-        }))
-        await asyncio.sleep(0.1)
-        status_request = urllib.request.Request(
-            f"http://127.0.0.1:{PORT}/api/v1/devices/incubator-001/commands/{command['command_id']}"
-        )
-        with urllib.request.urlopen(status_request, timeout=5) as response:
-            status = json.load(response)
-        assert status["status"] == "applied"
+        for params in (
+            {"enabled": True}, {"enabled": False},
+            *({"enabled": True, "power": power} for power in (0, 5, 60, 100)),
+            {"enabled": False, "power": 60},
+        ):
+            with urllib.request.urlopen(request_for(params), timeout=5) as response:
+                command = json.load(response)
+            pushed = json.loads(await socket.recv())
+            assert pushed["command_id"] == command["command_id"]
+            assert pushed["command"] == "set_fan"
+            assert pushed["params"] == params
+
+            await socket.send(json.dumps({
+                "type": "command_ack", "command_id": command["command_id"], "status": "applied"
+            }))
+            await asyncio.sleep(0.1)
+            status_request = urllib.request.Request(
+                f"http://127.0.0.1:{PORT}/api/v1/devices/incubator-001/commands/{command['command_id']}"
+            )
+            with urllib.request.urlopen(status_request, timeout=5) as response:
+                status = json.load(response)
+            assert status["status"] == "applied"
+
+        for power in (-1, 101, True, 1.5, "60", None):
+            try:
+                urllib.request.urlopen(request_for({"enabled": True, "power": power}), timeout=5)
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 400
+            else:
+                raise AssertionError(f"invalid fan power accepted: {power!r}")
 
 
 try:

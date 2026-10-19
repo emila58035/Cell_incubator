@@ -119,6 +119,10 @@
       <button type="button" data-command="set_fan" data-target="fanCtl">风扇</button>
       <button type="button" data-command="set_valve_enabled" data-target="valveCtl">阀门自动</button>
     </form>
+    <form id="fanControl">
+      <label>风扇输出 <input id="fanPowerInput" type="number" min="0" max="100" step="1" required> %</label>
+      <button id="fanPowerApply">设置风扇输出</button>
+    </form>
     <div class="control-status" id="controlStatus"></div>
   </div>
 
@@ -175,7 +179,7 @@ function renderActuators(L) {
   $("actuators").innerHTML =
     chip("加热", on(L.heater_on) + (L.heater_pwm === null ? "" : " · " + fmt(L.heater_pct, 0) + "%")) +
     chip("光照", on(L.light) + (L.light_pct === null ? "" : " · " + L.light_pct + "%")) +
-    chip("风扇", on(L.fan)) +
+    chip("风扇", on(L.fan) + (L.fan_pct == null ? "" : " · " + L.fan_pct + "%")) +
     chip("阀门", L.valve ? '<span class="warn">OPEN</span>' : '<span class="off">CLOSED</span>');
 }
 
@@ -361,9 +365,14 @@ async function refresh() {
     $("offlineAfter").textContent = L.offline_after_s;
     $("tempInput").value = L.target_temperature ?? "";
     $("brightnessInput").value = L.light_pct ?? 0;
+    if (document.activeElement !== $("fanPowerInput")) {
+      $("fanPowerInput").value = L.fan_pct ?? (L.fan ? 100 : 0);
+    }
     for (const button of document.querySelectorAll("#switchControls button")) button.disabled = !L.online;
     $("tempInput").disabled = !L.online;
     $("brightnessInput").disabled = !L.online;
+    $("fanPowerInput").disabled = !L.online;
+    $("fanPowerApply").disabled = !L.online;
     const controlLabels = {
       heaterCtl: L.heater_on ? "关闭加热" : "开启加热",
       lightCtl: L.light ? "关闭照明" : "开启照明",
@@ -394,6 +403,11 @@ async function refresh() {
   bindTooltip($("chartCo2"), $("tipCo2"));
   $("tempControl").addEventListener("submit", (ev) => {
     ev.preventDefault(); sendCommand("set_temperature", { value: Number($("tempInput").value) });
+  });
+  $("fanControl").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const power = Number($("fanPowerInput").value);
+    sendCommand("set_fan", { enabled: power > 0, power });
   });
   $("switchControls").addEventListener("click", (ev) => {
     const button = ev.target.closest("button"); if (!button || button.disabled) return;

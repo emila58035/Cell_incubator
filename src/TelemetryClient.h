@@ -29,7 +29,8 @@ struct TelemetrySample {
   uint32_t uptimeS;
   uint8_t lightBrightness;
   uint8_t flags;
-  uint16_t reserved;
+  uint8_t fanPower;
+  uint8_t reserved;
 };
 
 enum TelemetryFlag : uint8_t {
@@ -125,6 +126,7 @@ class TelemetryClient {
     float temperature = 0.0f;
     bool enabled = false;
     uint8_t brightness = 0;
+    uint8_t fanPower = 0;
     char id[40] = {};
   };
   PendingCommand pendingCommand_;

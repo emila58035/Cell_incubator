@@ -82,7 +82,19 @@ void InputManager::update(uint32_t now, SystemState &state) {
                       state.lightBrightness);
         break;
       }
-      case SettingsItem::Fan:
+      case SettingsItem::Fan: {
+        const int power = constrain(
+            state.fanPower + steps * Config::FanPowerStep, 0, 100);
+        if (power != state.fanPower) {
+          state.fanPower = power;
+          state.fanEnabled = power > 0;
+          state.settingsDirty = true;
+          state.settingsSaveFailed = false;
+          state.markDisplayDirty();
+          Serial.printf("[INPUT] Fan power=%u%%\n", state.fanPower);
+        }
+        break;
+      }
       case SettingsItem::Valve:
       case SettingsItem::Save:
       case SettingsItem::Count:
@@ -128,8 +140,9 @@ void InputManager::update(uint32_t now, SystemState &state) {
           break;
         case SettingsItem::Fan:
           state.fanEnabled = !state.fanEnabled;
-          Serial.printf("[INPUT] Fan=%s\n",
-                        state.fanEnabled ? "ON" : "OFF");
+          state.fanPower = state.fanEnabled ? 100 : 0;
+          Serial.printf("[INPUT] Fan=%s, power=%u%%\n",
+                        state.fanEnabled ? "ON" : "OFF", state.fanPower);
           state.settingsDirty = true;
           state.settingsSaveFailed = false;
           break;

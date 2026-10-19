@@ -162,6 +162,7 @@ void TelemetryClient::publish(uint32_t now, SystemState &state) {
   sample_.heaterDuty = state.heaterDuty;
   sample_.uptimeS = now / 1000u;
   sample_.lightBrightness = state.lightBrightness;
+  sample_.fanPower = state.fanEnabled ? state.fanPower : 0;
 
   uint8_t flags = 0;
   if (state.temperatureValid) {
@@ -296,7 +297,7 @@ bool TelemetryClient::buildBody(const TelemetrySample &sample,
       "\"target_temperature\":%s,"
       "\"heater_on\":%s,\"heater_pwm\":%lu,"
       "\"light\":%s,\"light_pct\":%u,"
-      "\"fan\":%s,\"valve_enabled\":%s,\"valve\":%s,"
+      "\"fan\":%s,\"fan_pct\":%u,\"valve_enabled\":%s,\"valve\":%s,"
       "\"rssi\":%d,"
       "\"heap_free\":%lu,\"heap_min\":%lu,\"heap_int\":%lu}",
       NetworkConfig::DeviceId, (unsigned long)sample.uptimeS,
@@ -311,6 +312,7 @@ bool TelemetryClient::buildBody(const TelemetrySample &sample,
       jsonBool(sample.flags & TelemetryLightEnabled),
       (unsigned)sample.lightBrightness,
       jsonBool(sample.flags & TelemetryFanEnabled),
+      (unsigned)sample.fanPower,
       jsonBool(sample.flags & TelemetryValveEnabled),
       jsonBool(sample.flags & TelemetryValveEnabled), (int)diagnostics.rssi,
       (unsigned long)diagnostics.heapFree, (unsigned long)diagnostics.heapMin,
@@ -433,6 +435,12 @@ void TelemetryClient::handleWebsocketEvent(
   } else if (strcmp(commandName, "set_fan") == 0) {
     command.type = CommandSetFan;
     if (!jsonBoolValue(json, "enabled", command.enabled)) return;
+    command.fanPower = command.enabled ? 100 : 0;
+    float power;
+    if (jsonNumber(json, "power", power)) {
+      if (!isfinite(power) || power < 0 || power > 100 || floorf(power) != power) return;
+      command.fanPower = (uint8_t)power;
+    }
   } else if (strcmp(commandName, "set_valve_enabled") == 0) {
     command.type = CommandSetValve;
     if (!jsonBoolValue(json, "enabled", command.enabled)) return;
@@ -477,7 +485,8 @@ void TelemetryClient::applyPendingCommand(SystemState &state) {
       state.lightBrightness = command.brightness;
       break;
     case CommandSetFan:
-      state.fanEnabled = command.enabled;
+      state.fanPower = command.enabled ? command.fanPower : 0;
+      state.fanEnabled = state.fanPower > 0;
       break;
     case CommandSetValve:
       state.valveEnabled = command.enabled;

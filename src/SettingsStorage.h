@@ -15,6 +15,7 @@ class SettingsStorage {
     uint8_t lightBrightness;
     bool lightEnabled;
     bool fanEnabled;
+    uint8_t fanPower;
     bool valveEnabled;
   };
 

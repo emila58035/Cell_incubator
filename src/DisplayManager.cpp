@@ -4,8 +4,6 @@
 
 namespace {
 
-const char *onOff(bool enabled) { return enabled ? "ON" : "OFF"; }
-
 uint16_t selectionColor(const SystemState &state) {
   return state.settingsItemSelected ? TFT_YELLOW : TFT_CYAN;
 }
@@ -158,8 +156,9 @@ void renderLayout(Display &display, const SystemState &state, int originX,
   display.fillRoundRect(x(154), y(ControlRow1Y + 22), 27, 4, 2, MutedColor);
   display.fillRoundRect(x(154), y(ControlRow1Y + 22),
                         lightBrightness * 27 / 100, 4, 2, TFT_YELLOW);
-  drawControl(SettingsItem::Fan, 208, ControlRow1Y, "FAN",
-              onOff(state.fanEnabled),
+  snprintf(valueText, sizeof(valueText), "%u%%",
+           state.fanEnabled ? state.fanPower : 0);
+  drawControl(SettingsItem::Fan, 208, ControlRow1Y, "FAN", valueText,
               state.fanEnabled ? TFT_GREEN : TFT_WHITE, state.fanEnabled);
 
   const char *saveText = state.settingsSaveFailed

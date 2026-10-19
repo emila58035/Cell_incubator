@@ -27,6 +27,10 @@ constexpr uint8_t LightBrightnessStep = 5;
 
 constexpr int FanOutputPin = 47;
 constexpr bool FanOutputActiveLow = false;
+constexpr uint32_t FanPwmFrequency = 25000;
+constexpr uint8_t FanPwmResolution = 8;
+constexpr uint32_t FanPwmMaximum = 255;
+constexpr uint8_t FanPowerStep = 5;
 
 constexpr int S8RxPin = 5;
 constexpr int S8TxPin = 4;

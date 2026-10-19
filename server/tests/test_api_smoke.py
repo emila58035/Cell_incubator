@@ -47,7 +47,10 @@ TOKENS_PATH.write_text(
 )
 
 conn = sqlite3.connect(DB_PATH)
-conn.executescript((SERVER_DIR / "schema.sql").read_text(encoding="utf-8"))
+# Exercise upgrading a database created before fan PWM support.
+conn.executescript((SERVER_DIR / "schema.sql").read_text(encoding="utf-8").replace(
+    "  fan_pct     INTEGER,\n", ""
+))
 conn.commit()
 conn.close()
 
@@ -138,6 +141,7 @@ try:
         "light": False,
         "light_pct": 0,
         "fan": True,
+        "fan_pct": 60,
         "valve": False,
         "rssi": -57,
         "heap_free": 210000,
@@ -177,6 +181,7 @@ try:
     check("temperature stored verbatim", L["temperature"] == 37.02, L["temperature"])
     check("co2 stored without conversion", L["co2"] == 51000, L["co2"])
     check("heater_pwm stored", L["heater_pwm"] == 128)
+    check("fan_pct migrated and stored", L["fan_pct"] == 60)
     check("heater_pct derived (128/255)", L["heater_pct"] == 50.2, L["heater_pct"])
     check("device online", L["online"] is True)
     check("label taken from the token file", L["label"] == "box one", L["label"])
@@ -191,8 +196,11 @@ try:
     check("out-of-range humidity -> 400", post({**BASE, "humidity": -5})[0] == 400)
     check("out-of-range co2 -> 400", post({**BASE, "co2": 9999999})[0] == 400)
     check("out-of-range rssi -> 400", post({**BASE, "rssi": 5})[0] == 400)
+    check("negative fan_pct -> 400", post({**BASE, "fan_pct": -1})[0] == 400)
+    check("fan_pct over 100 -> 400", post({**BASE, "fan_pct": 101})[0] == 400)
     check("oversized device_id -> 400", post({**BASE, "device_id": "x" * 65})[0] == 400)
     check("minimal payload accepted -> 204", post({"device_id": "incubator-001"})[0] == 204)
+    check("missing fan_pct stays unknown", latest()["fan_pct"] is None)
     check("unknown field ignored -> 204", post({**BASE, "future_field": 1})[0] == 204)
     check("ignored field created no column", "future_field" not in latest())
 
@@ -240,11 +248,13 @@ try:
     hist = body(http("GET", "/api/v1/devices/incubator-001/history?hours=1")[1])
     check("history 1h is raw (no bucket)", hist["step_s"] is None, hist["step_s"])
     check("history returns points", hist["count"] == 8, hist["count"])
+    check("raw history includes fan_pct", any(p["fan_pct"] == 60 for p in hist["points"]))
     stamps = [p["recv_ts"] for p in hist["points"]]
     check("history points ascend", stamps == sorted(stamps))
     hist24 = body(http("GET", "/api/v1/devices/incubator-001/history?hours=24")[1])
     check("history 24h uses 60s buckets", hist24["step_s"] == 60, hist24["step_s"])
     check("24h window covers the backdated rows", hist24["count"] >= 1, hist24["count"])
+    check("bucketed history includes fan_pct", any(p["fan_pct"] == 60 for p in hist24["points"]))
     explicit = body(http("GET", "/api/v1/devices/incubator-001/history?hours=2&step=300")[1])
     check("explicit step honoured", explicit["step_s"] == 300, explicit["step_s"])
     csv_status, csv_raw = http("GET", "/api/v1/devices/incubator-001/export.csv?hours=1")

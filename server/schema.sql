@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
   heater_on   INTEGER, heater_pwm INTEGER,
   light       INTEGER, light_pct  INTEGER,
   fan         INTEGER,
+  fan_pct     INTEGER,
   valve_enabled INTEGER,
   valve       INTEGER,
 

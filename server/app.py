@@ -94,6 +94,7 @@ class TelemetryIn(BaseModel):
     light: Optional[bool] = None
     light_pct: Optional[int] = Field(default=None, ge=0, le=100)
     fan: Optional[bool] = None
+    fan_pct: Optional[int] = Field(default=None, ge=0, le=100)
     valve_enabled: Optional[bool] = None
     valve: Optional[bool] = None
 
@@ -122,7 +123,13 @@ def _command_valid(command: str, params: dict[str, Any]) -> Optional[str]:
         brightness = params.get("brightness", 100 if params["enabled"] else 0)
         if not isinstance(brightness, int) or isinstance(brightness, bool) or not 0 <= brightness <= 100:
             return "brightness_out_of_range"
-    elif command in {"set_heater", "set_fan", "set_valve_enabled"}:
+    elif command == "set_fan":
+        if not isinstance(params.get("enabled"), bool):
+            return "enabled_must_be_boolean"
+        power = params.get("power", 100 if params["enabled"] else 0)
+        if not isinstance(power, int) or isinstance(power, bool) or not 0 <= power <= 100:
+            return "power_out_of_range"
+    elif command in {"set_heater", "set_valve_enabled"}:
         if not isinstance(params.get("enabled"), bool):
             return "enabled_must_be_boolean"
     return None
@@ -204,6 +211,9 @@ def db() -> sqlite3.Connection:
     if "valve_enabled" not in columns:
         with conn:
             conn.execute("ALTER TABLE telemetry ADD COLUMN valve_enabled INTEGER")
+    if "fan_pct" not in columns:
+        with conn:
+            conn.execute("ALTER TABLE telemetry ADD COLUMN fan_pct INTEGER")
     return conn
 
 
@@ -211,12 +221,12 @@ INSERT_TELEMETRY = """
 INSERT INTO telemetry (
   device_id, recv_ts, uptime_s, fw_version,
   temperature, temperature_ok, humidity, humidity_ok, co2, co2_ok, co2_available,
-  target_temperature, heater_on, heater_pwm, light, light_pct, fan, valve_enabled, valve,
+  target_temperature, heater_on, heater_pwm, light, light_pct, fan, fan_pct, valve_enabled, valve,
   rssi, heap_free, heap_min, heap_int
 ) VALUES (
   :device_id, :recv_ts, :uptime_s, :fw_version,
   :temperature, :temperature_ok, :humidity, :humidity_ok, :co2, :co2_ok, :co2_available,
-  :target_temperature, :heater_on, :heater_pwm, :light, :light_pct, :fan, :valve_enabled, :valve,
+  :target_temperature, :heater_on, :heater_pwm, :light, :light_pct, :fan, :fan_pct, :valve_enabled, :valve,
   :rssi, :heap_free, :heap_min, :heap_int
 )
 """
@@ -323,7 +333,8 @@ def _store_telemetry(payload: TelemetryIn, authed_device: str) -> None:
                     "target_temperature": payload.target_temperature,
                     "heater_on": _flag(payload.heater_on), "heater_pwm": payload.heater_pwm,
                     "light": _flag(payload.light), "light_pct": payload.light_pct,
-                    "fan": _flag(payload.fan), "valve_enabled": _flag(payload.valve_enabled),
+                    "fan": _flag(payload.fan), "fan_pct": payload.fan_pct,
+                    "valve_enabled": _flag(payload.valve_enabled),
                     "valve": _flag(payload.valve),
                     "rssi": payload.rssi, "heap_free": payload.heap_free,
                     "heap_min": payload.heap_min, "heap_int": payload.heap_int,
@@ -637,6 +648,7 @@ POINT_COLUMNS = (
     "target_temperature",
     "heater_pwm",
     "light_pct",
+    "fan_pct",
     "valve_enabled",
     "valve",
 )
@@ -670,6 +682,7 @@ def history(
                        AVG(target_temperature) AS target_temperature,
                        AVG(heater_pwm)         AS heater_pwm,
                        AVG(light_pct)          AS light_pct,
+                       AVG(fan_pct)            AS fan_pct,
                        MAX(valve_enabled)      AS valve_enabled,
                        MAX(valve)              AS valve
                 FROM telemetry
@@ -705,7 +718,7 @@ def history(
                 value = round(value, 2)
             elif key == "co2" and value is not None:
                 value = int(round(value))
-            elif key in ("heater_pwm", "light_pct", "valve_enabled", "valve") and value is not None:
+            elif key in ("heater_pwm", "light_pct", "fan_pct", "valve_enabled", "valve") and value is not None:
                 value = int(round(value))
             point[key] = value
         points.append(point)
