@@ -1,6 +1,47 @@
 # 相机端工具
 
-已实现 USB 单张采集模块和开发模拟器；树莓派正式通信客户端、systemd 部署材料尚待实现。模拟器将指定的测试图片当作一次拍摄结果上传，控制台明确标记 `SIMULATOR`。
+已实现 USB 单张采集模块、树莓派通信客户端和开发模拟器；systemd 部署材料尚待实现。模拟器将指定的测试图片当作一次拍摄结果上传，控制台明确标记 `SIMULATOR`。
+
+## 树莓派通信客户端
+
+`client.py` 兼容 Python 3.7，通过 `websockets==11.0.3` 接收指令，通过标准库 `urllib` 上传 JPEG。使用已配置的系统 OpenCV 虚拟环境，在相机程序目录执行：
+
+```bash
+~/incubator/.venv-camera/bin/python -m pip install -r requirements-pi.txt
+read -r -s -p '相机 Token: ' INCUBATOR_CAMERA_TOKEN
+export INCUBATOR_CAMERA_TOKEN
+~/incubator/.venv-camera/bin/python client.py \
+  --server https://175.24.182.190 \
+  --ca "$HOME/incubator-ca.pem" \
+  --temp-dir "$HOME/incubator/camera-tmp"
+```
+
+运行需同时复制 `client.py` 和 `usb_capture.py`。Token 应对应服务器 `camera-001`；服务器相机模块、相机设备配置和 Nginx 通道准备完毕后才能进行真实接入。2026-10-19 用户已确认服务器尚未部署相机功能，当前不能据此命令认定公网拍照可用。前台可用 Ctrl+C 停止。
+
+客户端收到 `connected` 后发送 `hello` 并等待确认，每 10 秒发送真实忙状态。收到拍照指令后分别等待 `capturing` 和 `uploading` 确认，再执行采集和单次上传；成功由服务器保存后决定，客户端不发送 `completed`。忙时拒绝新指令，不排队。
+
+上传在后台线程中执行，不阻塞控制消息；普通断线每隔 5 秒重连。旧任务不借新连接继续发送状态或开始上传；已经发出的 HTTP 请求等待实际结束，本地仍保持忙状态，不重新上传。停止程序时同样等待已发出的上传结束，再清理文件。上传网络超时为 60 秒，并非整个任务的严格总时限。
+
+临时目录应只用于本程序。启动只清理其中 `capture-*.jpg` 遗留文件；每次任务使用随机临时文件名，成功或失败后均删除。不要同时运行两个客户端或预览程序占用摄像头。
+
+配置也可通过环境变量传入，命令行参数优先：
+
+| 环境变量 | 用途 / 默认值 |
+|---|---|
+| `INCUBATOR_CAMERA_SERVER` | 服务器 HTTP(S) 根地址，必填 |
+| `INCUBATOR_CAMERA_TOKEN` | 相机设备 Token，必填 |
+| `INCUBATOR_CAMERA_CA` | HTTPS/WSS CA 文件，未设置时使用系统信任库 |
+| `INCUBATOR_CAMERA_DEVICE` | OpenCV 设备索引，默认 `0` |
+| `INCUBATOR_CAMERA_TEMP_DIR` | 专用临时目录，默认 `/var/lib/incubator-camera/tmp` |
+
+客户端本机测试需启动现有服务器代码，应使用独立的 Python 3.10+ 环境；这不改变树莓派客户端的 Python 3.7 要求。安装 `fastapi`、`uvicorn` 和锁定的相机通信依赖，避免影响使用现代 websockets 的模拟器测试。在仓库根目录运行：
+
+```bash
+python -m pip install fastapi uvicorn -r camera/requirements-pi.txt
+python -m unittest discover -s camera/tests -p 'test_*.py' -v
+```
+
+测试启动临时 FastAPI 后端与本机 HTTP/WebSocket 对端，验证拍照上传和原图下载、失败原因、忙时拒绝、心跳、状态确认、超时、重连与停止清理；OpenCV 使用替身，无需真实设备。实机 Python 3.7 与 USB 摄像头的正式客户端闭环仍待验证。
 
 ## 树莓派 USB 单张采集
 
@@ -47,4 +88,4 @@ python camera/simulator.py --server http://127.0.0.1:8000 --image C:/path/to/tes
 
 模拟器先发送 `hello`，随后每 10 秒报告心跳及忙状态；接收 `capture` 后依次报告 `capturing` 和 `uploading`，复制测试图片到临时目录并上传。无论上传成功或失败，都删除该临时副本，不修改原测试图片，不重试上传。模拟器断线后退出，不自行重新执行旧任务。
 
-正式客户端、systemd 自启动与断线重连在后续开发项中实现。
+systemd 自启动与公网实机联调在后续开发项中完成。

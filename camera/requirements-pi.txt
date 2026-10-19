@@ -1,0 +1,2 @@
+# OpenCV is provided by the existing system installation, not pip.
+websockets==11.0.3
